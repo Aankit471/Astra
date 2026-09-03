@@ -1,0 +1,13 @@
+{
+  "name": "ASTRA Emergency Referral Coordination",
+  "short_name": "ASTRA",
+  "description": "Emergency healthcare referral and coordination decision-support demo.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "theme_color": "#07152F",
+  "background_color": "#000C35",
+  "icons": [
+    { "src": "/astra-icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
