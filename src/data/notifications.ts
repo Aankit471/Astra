@@ -4,9 +4,9 @@ const m = (n: number) => new Date(Date.now() - n * 60_000).toISOString()
 
 export const NOTIFICATIONS: Notification[] = [
   {
-    id: 'N001', title: 'Referral Sent', body: 'Your referral has been sent to Apollo General Hospital.',
+    id: 'N001', title: 'Referral Sent', body: 'Emergency referral sent to Apollo General Hospital.',
     severity: 'INFO', isRead: false, createdAt: m(35), referralId: 'REF-001',
-    actionLabel: 'View Status', actionPath: '/user/referral/REF-001',
+    actionLabel: 'View Status', actionPath: '/hospital/referrals/REF-001',
   },
   {
     id: 'N002', title: 'New Referral — IMMEDIATE', body: 'Incoming cardiac emergency. STEMI suspected. Requires Cath Lab.',
@@ -19,9 +19,9 @@ export const NOTIFICATIONS: Notification[] = [
     actionLabel: 'Review Now', actionPath: '/doctor/referrals/REF-001',
   },
   {
-    id: 'N004', title: 'Hospital Declined', body: 'Government District Hospital could not accept your referral. Escalating to next facility.',
+    id: 'N004', title: 'Hospital Declined', body: 'Government District Hospital could not accept referral REF-002. Escalating to next facility.',
     severity: 'WARNING', isRead: false, createdAt: m(44), referralId: 'REF-002',
-    actionLabel: 'View Status', actionPath: '/user/referral/REF-002',
+    actionLabel: 'View Referral', actionPath: '/hospital/referrals/REF-002',
   },
   {
     id: 'N005', title: 'Referral Escalated', body: "Contacting St. Mary's Mission Hospital for your referral.",
