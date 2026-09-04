@@ -59,17 +59,21 @@ export function DoctorPortalContainer({
     setSelectedPatient(patient)
   }
 
-  const handleOpenReviewModal = (_reviewId: string) => {
-    const foundRef = referrals[0]
-    if (foundRef) {
-      setSelectedReviewReferral(foundRef)
+  const handleOpenReviewModal = (refOrId: Referral | string) => {
+    if (typeof refOrId === 'string') {
+      const foundRef = referrals.find((r) => r.id === refOrId) || referrals[0]
+      if (foundRef) {
+        setSelectedReviewReferral(foundRef)
+      } else {
+        setActiveView('referrals')
+      }
     } else {
-      setActiveView('reviews')
+      setSelectedReviewReferral(refOrId)
     }
   }
 
   const handleAcceptReview = (id: string, notes?: string) => {
-    acceptReferral(id, true, notes || 'Accepted by Dr. Sarah Jenkins')
+    acceptReferral(id, true, notes || `Accepted by ${user.name || 'Attending Physician'}`)
   }
 
   const handleRejectReview = (id: string, _reason: string) => {
@@ -95,17 +99,31 @@ export function DoctorPortalContainer({
       {/* ── View Router ──────────────────────────────────────────────── */}
       {activeView === 'dashboard' && (
         <DoctorDashboard
+          user={user}
           onNavigate={(view) => setActiveView(view as DoctorViewTab)}
           onOpenPatient={handleOpenPatientDetail}
           onOpenReviewModal={handleOpenReviewModal}
         />
       )}
 
-      {activeView === 'patients' && <DoctorPatientsView />}
+      {activeView === 'patients' && (
+        <DoctorPatientsView
+          user={user}
+          onOpenReview={(ref) => setSelectedReviewReferral(ref)}
+        />
+      )}
 
-      {activeView === 'referrals' && <DoctorReferralsView />}
+      {activeView === 'referrals' && (
+        <DoctorReferralsView
+          user={user}
+        />
+      )}
 
-      {activeView === 'reviews' && <DoctorClinicalReviewsView />}
+      {activeView === 'reviews' && (
+        <DoctorClinicalReviewsView
+          user={user}
+        />
+      )}
 
       {activeView === 'tasks' && (
         <DoctorTasksView
@@ -154,6 +172,7 @@ export function DoctorPortalContainer({
       {selectedReviewReferral && (
         <DoctorReferralReviewModal
           referral={selectedReviewReferral}
+          user={user}
           onClose={() => setSelectedReviewReferral(null)}
           onAccept={handleAcceptReview}
           onReject={handleRejectReview}

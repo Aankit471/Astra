@@ -9,7 +9,11 @@ import {
   type DoctorClinicalReview,
 } from '@/data/doctorData'
 
-export function DoctorClinicalReviewsView() {
+interface DoctorClinicalReviewsViewProps {
+  user?: import('@/types/auth').AuthUser
+}
+
+export function DoctorClinicalReviewsView({ user }: DoctorClinicalReviewsViewProps) {
   const [reviews, setReviews] = useState<DoctorClinicalReview[]>(MOCK_CLINICAL_REVIEWS)
   const [selectedReview, setSelectedReview] = useState<DoctorClinicalReview | null>(null)
   const [assessmentText, setAssessmentText] = useState('')
@@ -35,6 +39,22 @@ export function DoctorClinicalReviewsView() {
 
   return (
     <div className="space-y-6">
+      {/* ── MANDATORY CLINICAL BANNER ─────────────────────────────────── */}
+      <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center gap-3 text-amber-300 text-xs">
+        <Stethoscope size={18} className="text-amber-400 shrink-0" />
+        <div className="flex-1">
+          <span className="font-bold uppercase tracking-wider block text-[10px] text-amber-400">
+            Clinical Governance & Diagnostic Validation
+          </span>
+          <p className="leading-snug">
+            <strong>Clinical decision by authorized medical professional.</strong> Algorithmic matching provides decision support only. Attending specialist retains full clinical authority and liability.
+          </p>
+        </div>
+        <span className="hidden sm:inline-block text-[10px] font-mono px-2 py-0.5 rounded bg-amber-950/60 border border-amber-500/40 text-amber-300">
+          {user?.doctorCode || 'DOC-REG-VERIFIED'}
+        </span>
+      </div>
+
       {/* ── Header ────────────────────────────────────────────────────── */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 bg-gradient-to-r from-slate-900 via-[#0a1424] to-teal-950/30 p-5 rounded-2xl border border-slate-800">
         <div>
@@ -45,7 +65,7 @@ export function DoctorClinicalReviewsView() {
             Clinical Reviews & Emergency Evaluation SLA Queue
           </h1>
           <p className="text-xs text-slate-400 mt-0.5">
-            Diagnostic clearance, admission appropriateness evaluations, and clinical time-to-decision SLAs.
+            Diagnostic clearance, admission appropriateness evaluations, and clinical time-to-decision SLAs. Scoped to {user?.name || 'Dr. Sarah Jenkins'} ({user?.specialty || 'Interventional Cardiology'}).
           </p>
         </div>
 

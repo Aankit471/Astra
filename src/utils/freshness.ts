@@ -30,6 +30,14 @@ export function getRelativeTime(isoString: string): string {
   }
 }
 
+export function formatExactTime(isoString: string): string {
+  try {
+    return new Date(isoString).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+  } catch {
+    return 'Just now'
+  }
+}
+
 /**
  * If the verification status is STALE, or the data is old enough
  * to be considered stale by our freshness rules, return STALE.
@@ -43,3 +51,4 @@ export function resolveEffectiveVerification(
   if (getFreshnessLevel(lastUpdatedISO) === 'STALE') return 'STALE'
   return verificationStatus
 }
+

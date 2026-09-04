@@ -43,7 +43,7 @@ interface DoctorPortalLayoutProps {
 }
 
 export function DoctorPortalLayout({
-  user: _user,
+  user,
   activeView,
   onSelectView,
   onLogout,
@@ -71,6 +71,11 @@ export function DoctorPortalLayout({
     setMobileMenuOpen(false)
   }
 
+  const doctorSpecialty = user.specialty || 'Interventional Cardiology'
+  const doctorHospital = user.hospitalName || 'Apollo General Hospital'
+  const doctorReg = user.doctorCode || 'KMC-84729'
+  const onCallStatus = user.doctorStatus || 'ON CALL'
+
   return (
     <div className="min-h-screen bg-[#060b13] text-slate-100 flex flex-col antialiased">
       {/* ── Top Clinical Command Bar ──────────────────────────────────── */}
@@ -91,12 +96,12 @@ export function DoctorPortalLayout({
             <div>
               <div className="flex items-center gap-2">
                 <span className="font-extrabold tracking-wider text-sm text-white">ASTRA</span>
-                <span className="text-[10px] font-bold uppercase tracking-wider bg-teal-500/15 border border-teal-500/30 text-teal-300 px-1.5 py-0.2 rounded">
-                  CLINICAL WORKSTATION
+                <span className="text-[10px] font-mono font-bold uppercase tracking-wider bg-teal-500/15 border border-teal-500/30 text-teal-300 px-2 py-0.5 rounded">
+                  DOCTOR / CLINICAL
                 </span>
               </div>
               <p className="text-[11px] text-slate-400 leading-none hidden sm:block">
-                Physician Decision Support
+                Physician Decision Support · Reg: {doctorReg}
               </p>
             </div>
           </div>
@@ -123,14 +128,14 @@ export function DoctorPortalLayout({
           {/* Facility indicator */}
           <div className="hidden sm:flex items-center gap-2 bg-[#060b13] border border-slate-800 px-3 py-1.5 rounded-xl text-xs">
             <Hospital size={14} className="text-teal-400" />
-            <span className="text-slate-300 font-medium">Metro Central / Apollo General</span>
-            <span className="text-[10px] text-slate-500 font-mono">Cardiac Suite</span>
+            <span className="text-slate-300 font-medium">{doctorHospital}</span>
+            <span className="text-[10px] text-teal-400 font-mono font-semibold">{doctorSpecialty}</span>
           </div>
 
-          {/* System status */}
+          {/* On-call status */}
           <div className="hidden xl:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-[11px] text-emerald-400 font-semibold">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-            <span>Telemetry 99.9%</span>
+            <span>{onCallStatus}</span>
           </div>
 
           {/* Notifications button */}
@@ -146,14 +151,14 @@ export function DoctorPortalLayout({
           {/* Doctor Profile chip */}
           <div className="flex items-center gap-2.5 pl-2 border-l border-slate-800">
             <div className="w-8 h-8 rounded-xl bg-teal-500/20 border border-teal-500/40 flex items-center justify-center text-xs font-bold text-teal-300">
-              SJ
+              {user.avatarInitials || 'DR'}
             </div>
             <div className="hidden lg:block text-left">
               <span className="text-xs font-bold text-white block leading-tight">
-                Dr. Sarah Jenkins, MD
+                {user.name}
               </span>
               <span className="text-[10px] text-slate-400 block leading-tight">
-                Lead Interventional Cardiologist
+                {doctorSpecialty} · {doctorReg}
               </span>
             </div>
           </div>
@@ -178,10 +183,10 @@ export function DoctorPortalLayout({
               </div>
               <div className="min-w-0">
                 <strong className="text-xs font-bold text-white truncate block">
-                  Dr. Sarah Jenkins, MD
+                  {user.name}
                 </strong>
                 <span className="text-[10px] text-teal-400 font-semibold block">
-                  Cardiology On-Duty
+                  {doctorSpecialty} · {onCallStatus}
                 </span>
               </div>
             </div>

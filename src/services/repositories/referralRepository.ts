@@ -1,11 +1,29 @@
 import { supabase, isSupabaseConfigured } from '@/lib/supabaseClient'
 import MockDatabase from '@/services/mock/mockDb'
 import { referralService } from '@/services/mock/referralService'
-import type { PatientBrief, Referral, RequiredCapability } from '@/types/domain'
+import type { PatientBrief, Referral, RequiredCapability, ReferralTimelineEvent } from '@/types/domain'
+
+export interface DoctorActor {
+  id: string
+  name: string
+  specialty?: string
+  doctorCode?: string
+  hospitalId?: string
+  hospitalName?: string
+}
+
+export interface ClinicalDecisionPayload {
+  decision: 'ACCEPTED' | 'DECLINED' | 'ESCALATED' | 'INFO_REQUESTED' | 'OVERRIDE'
+  notes?: string
+  reason?: string
+  priority?: 'Immediate' | 'Urgent' | 'Routine'
+  escalationReason?: 'MANUAL' | 'NO_RESPONSE' | 'DECLINED_ALL' | 'TIMEOUT'
+  overrideReason?: string
+}
 
 export const referralRepository = {
   /**
-   * List referrals.
+   * List referrals with optional filtering.
    */
   async list(filters?: { hospitalId?: string; createdBy?: string; doctorId?: string }): Promise<Referral[]> {
     if (isSupabaseConfigured()) {
@@ -33,28 +51,28 @@ export const referralRepository = {
                   urgencyLevel: r.patients.urgency_level,
                   bloodGroup: r.patients.blood_group,
                 }
-              : {
-                  referenceCode: 'UNKNOWN',
-                  age: 0,
+              : (r.patient_data || {
+                  referenceCode: 'EMERGENCY-REF',
+                  age: 50,
                   sex: 'OTHER',
                   chiefComplaint: 'Emergency Referral',
                   emergencyCategory: 'CARDIAC',
                   urgencyLevel: 'IMMEDIATE',
-                },
+                }),
             requiredCapabilities: Array.isArray(r.required_capabilities) ? r.required_capabilities : [],
             matchedFacilities: Array.isArray(r.matched_facilities) ? r.matched_facilities : [],
             sentToFacilityId: r.sent_to_facility_id,
             sentToFacilityName: r.sent_to_facility_name,
-            responseDeadline: new Date(Date.now() + 15 * 60_000).toISOString(),
+            responseDeadline: r.response_deadline || new Date(Date.now() + 15 * 60_000).toISOString(),
             timeline: (r.referral_events || []).map((e: any) => ({
               id: e.id,
               event: e.event,
               timestamp: e.timestamp || e.created_at,
               actor: e.actor || 'System',
               notes: e.notes,
-              isSystemEvent: !e.actor || e.actor === 'System',
+              isSystemEvent: e.is_system_event ?? (!e.actor || e.actor === 'System'),
             })),
-            decision: r.clinical_decision,
+            decision: r.decision,
             assignedDoctorId: r.assigned_doctor_id,
           }))
         }
@@ -98,10 +116,12 @@ export const referralRepository = {
           .insert({
             id: referralId,
             patient_id: pData?.id,
+            patient_data: patient,
             status: 'MATCHED',
             required_capabilities: capabilities,
             matched_facilities: ['H001', 'H002', 'H003', 'H004'],
             created_by: createdBy,
+            response_deadline: new Date(Date.now() + 15 * 60_000).toISOString(),
           })
           .select()
           .single()
@@ -139,4 +159,169 @@ export const referralRepository = {
 
     return referralService.createReferral(patient, capabilities, createdBy)
   },
+
+  /**
+   * Record a doctor's clinical decision on a referral.
+   * Supports: ACCEPTED, DECLINED, ESCALATED, INFO_REQUESTED, OVERRIDE
+   */
+  async recordDecision(
+    referralId: string,
+    payload: ClinicalDecisionPayload,
+    doctor: DoctorActor
+  ): Promise<boolean> {
+    const timestamp = new Date().toISOString()
+    let eventTitle = ''
+    let newStatus: Referral['status'] = 'REVIEWING'
+
+    if (payload.decision === 'ACCEPTED') {
+      newStatus = 'ACCEPTED'
+      eventTitle = 'Clinical Acceptance Confirmed by Attending Specialist'
+    } else if (payload.decision === 'DECLINED') {
+      newStatus = 'DECLINED'
+      eventTitle = 'Referral Declined by Receiving Specialist'
+    } else if (payload.decision === 'ESCALATED') {
+      newStatus = 'ESCALATED'
+      eventTitle = 'Referral Escalated to Medical Director / Trauma Ops'
+    } else if (payload.decision === 'INFO_REQUESTED') {
+      newStatus = 'REVIEWING'
+      eventTitle = `Clinical Information Requested [Priority: ${payload.priority || 'Urgent'}]`
+    } else if (payload.decision === 'OVERRIDE') {
+      newStatus = 'ACCEPTED'
+      eventTitle = 'Clinical Override Authorized by Attending Specialist'
+    }
+
+    if (isSupabaseConfigured()) {
+      try {
+        const updatePayload: Record<string, any> = {
+          updated_at: timestamp,
+          assigned_doctor_id: doctor.id,
+          assigned_doctor_name: doctor.name,
+          assigned_doctor_code: doctor.doctorCode,
+          assigned_specialty: doctor.specialty,
+        }
+
+        if (payload.decision === 'ACCEPTED') {
+          updatePayload.status = 'ACCEPTED'
+          updatePayload.decision = {
+            accepted: true,
+            doctorId: doctor.id,
+            doctorName: doctor.name,
+            notes: payload.notes || payload.reason,
+            timestamp,
+          }
+        } else if (payload.decision === 'DECLINED') {
+          updatePayload.status = 'DECLINED'
+          updatePayload.decision = {
+            accepted: false,
+            doctorId: doctor.id,
+            doctorName: doctor.name,
+            notes: payload.notes || payload.reason,
+            timestamp,
+          }
+        } else if (payload.decision === 'ESCALATED') {
+          updatePayload.status = 'ESCALATED'
+          updatePayload.escalation_reason = payload.escalationReason || 'MANUAL'
+          updatePayload.escalated_at = timestamp
+        } else if (payload.decision === 'INFO_REQUESTED') {
+          updatePayload.info_requested = true
+          updatePayload.info_requested_notes = payload.notes || payload.reason
+        } else if (payload.decision === 'OVERRIDE') {
+          updatePayload.status = 'ACCEPTED'
+          updatePayload.clinical_override = true
+          updatePayload.clinical_override_notes = payload.overrideReason || payload.notes
+        }
+
+        const { error: updateErr } = await supabase
+          .from('referrals')
+          .update(updatePayload)
+          .eq('id', referralId)
+
+        if (!updateErr) {
+          await supabase.from('referral_events').insert({
+            referral_id: referralId,
+            event: eventTitle,
+            actor: doctor.name,
+            actor_role: 'DOCTOR',
+            facility_id: doctor.hospitalId,
+            facility_name: doctor.hospitalName,
+            notes: payload.notes || payload.reason,
+            is_system_event: false,
+            timestamp,
+          })
+          return true
+        }
+      } catch (err) {
+        console.warn('Supabase recordDecision error, falling back to mock:', err)
+      }
+    }
+
+    // Mock fallback
+    const mockDb = MockDatabase.getInstance()
+    const target = mockDb.getReferralById(referralId)
+    if (target) {
+      target.status = newStatus
+      target.updatedAt = timestamp
+      target.assignedDoctorId = doctor.id
+      target.decision = {
+        type: payload.decision === 'DECLINED' ? 'DECLINE' : payload.decision === 'INFO_REQUESTED' ? 'INFO_REQUEST' : 'ACCEPT',
+        decidedBy: doctor.id,
+        decidedAt: timestamp,
+        declineNotes: payload.decision === 'DECLINED' ? (payload.notes || payload.reason) : undefined,
+        infoRequest: payload.decision === 'INFO_REQUESTED' ? (payload.notes || payload.reason) : undefined,
+      }
+      const newEvt: ReferralTimelineEvent = {
+        id: `evt-${Date.now()}`,
+        event: eventTitle,
+        actor: doctor.name,
+        timestamp,
+        notes: payload.notes || payload.reason,
+        isSystemEvent: false,
+      }
+      target.timeline.unshift(newEvt)
+      mockDb.upsertReferral(target)
+      return true
+    }
+    return false
+  },
+
+  /**
+   * Add a clinical note to referral timeline.
+   */
+  async addClinicalNote(referralId: string, note: string, doctor: DoctorActor): Promise<boolean> {
+    const timestamp = new Date().toISOString()
+    if (isSupabaseConfigured()) {
+      try {
+        const { error } = await supabase.from('referral_events').insert({
+          referral_id: referralId,
+          event: 'Clinical Progress Note Added',
+          actor: doctor.name,
+          actor_role: 'DOCTOR',
+          facility_id: doctor.hospitalId,
+          facility_name: doctor.hospitalName,
+          notes: note,
+          is_system_event: false,
+          timestamp,
+        })
+        if (!error) return true
+      } catch (err) {
+        console.warn('Supabase addClinicalNote error, falling back to mock:', err)
+      }
+    }
+
+    const mockDb = MockDatabase.getInstance()
+    const target = mockDb.getReferralById(referralId)
+    if (target) {
+      target.timeline.unshift({
+        id: `evt-${Date.now()}`,
+        event: 'Clinical Progress Note Added',
+        actor: doctor.name,
+        timestamp,
+        notes: note,
+        isSystemEvent: false,
+      })
+      mockDb.upsertReferral(target)
+      return true
+    }
+    return false
+  }
 }
