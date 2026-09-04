@@ -714,5 +714,115 @@ export const referralRepository = {
 
     return { success: false, error: 'Invalid decision type.' }
   },
+
+  /**
+   * Route an accepted/incoming referral to clinical team.
+   */
+  async routeToClinical(
+    referralId: string,
+    actor: { id: string; name: string; role: string; hospitalId?: string; hospitalName?: string },
+    doctor?: { id: string; name: string; specialty?: string; doctorCode?: string }
+  ): Promise<{ success: boolean; error?: string }> {
+    const timestamp = new Date().toISOString()
+    const eventText = doctor
+      ? `Routed to clinical team (${doctor.name}${doctor.specialty ? ' · ' + doctor.specialty : ''})`
+      : 'Intake validated by Hospital Ops. Routed to Duty Specialist queue.'
+
+    if (isSupabaseConfigured()) {
+      try {
+        const updatePayload: Record<string, any> = {
+          status: 'REVIEWING',
+          updated_at: timestamp,
+        }
+        if (doctor) {
+          updatePayload.assigned_doctor_id = doctor.id
+          updatePayload.assigned_doctor_name = doctor.name
+          updatePayload.assigned_doctor_code = doctor.doctorCode
+          updatePayload.assigned_specialty = doctor.specialty
+        }
+
+        const { error: updateErr } = await supabase
+          .from('referrals')
+          .update(updatePayload)
+          .eq('id', referralId)
+
+        if (!updateErr) {
+          await supabase.from('referral_events').insert({
+            referral_id: referralId,
+            event: eventText,
+            actor: actor.name,
+            actor_role: actor.role,
+            facility_id: actor.hospitalId,
+            facility_name: actor.hospitalName,
+            is_system_event: false,
+            timestamp,
+          })
+
+          await auditRepository.log({
+            action: 'REFERRAL_ROUTED_TO_CLINICAL',
+            actorId: actor.id,
+            actorName: actor.name,
+            actorRole: actor.role,
+            targetType: 'REFERRAL',
+            targetId: referralId,
+            targetLabel: `Referral #${referralId} Routed to Clinical`,
+            details: {
+              hospitalId: actor.hospitalId,
+              doctorId: doctor?.id,
+              doctorName: doctor?.name,
+              specialty: doctor?.specialty,
+            },
+          })
+
+          return { success: true }
+        }
+      } catch (err: any) {
+        console.warn('Supabase routeToClinical failed, using mock fallback:', err)
+      }
+    }
+
+    // Mock fallback
+    const mockDb = MockDatabase.getInstance()
+    const target = mockDb.getReferralById(referralId)
+    if (target) {
+      target.status = 'REVIEWING'
+      target.updatedAt = timestamp
+      if (doctor) {
+        target.assignedDoctorId = doctor.id
+        target.assignedDoctorName = doctor.name
+        target.assignedDoctorCode = doctor.doctorCode
+        target.assignedSpecialty = doctor.specialty
+      }
+      target.timeline.unshift({
+        id: `evt-${Date.now()}`,
+        event: eventText,
+        actor: actor.name,
+        timestamp,
+        isSystemEvent: false,
+      })
+      mockDb.upsertReferral(target)
+
+      await auditRepository.log({
+        action: 'REFERRAL_ROUTED_TO_CLINICAL',
+        actorId: actor.id,
+        actorName: actor.name,
+        actorRole: actor.role,
+        targetType: 'REFERRAL',
+        targetId: referralId,
+        targetLabel: `Referral #${referralId} Routed to Clinical`,
+        details: {
+          hospitalId: actor.hospitalId,
+          doctorId: doctor?.id,
+          doctorName: doctor?.name,
+          specialty: doctor?.specialty,
+          mode: 'OFFLINE_FALLBACK',
+        },
+      })
+
+      return { success: true }
+    }
+
+    return { success: false, error: 'Referral not found.' }
+  },
 }
 
