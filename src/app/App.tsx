@@ -14,6 +14,7 @@ import {
   LogOut,
   Menu,
   Network,
+  RotateCcw,
   Search,
   ShieldCheck,
   Siren,
@@ -35,6 +36,7 @@ import { DoctorPatientQueue } from '@/components/doctor/DoctorPatientQueue'
 import { BloodAvailabilityView } from '@/components/doctor/BloodAvailabilityView'
 import { DoctorReferralReview } from '@/components/doctor/DoctorReferralReview'
 import { AdminHospitalManager } from '@/components/admin/AdminHospitalManager'
+import { AdminDemoResetModal } from '@/components/admin/AdminDemoResetModal'
 import { HospitalPortalContainer } from '@/components/hospital/HospitalPortalContainer'
 import { DoctorPortalContainer } from '@/components/doctor-workspace/DoctorPortalContainer'
 import { useSupabaseRealtime } from '@/services/supabase/useSupabaseRealtime'
@@ -183,6 +185,7 @@ function Portal({ user, onLogout }: { user: AuthUser; onLogout: () => void }) {
   const [view, setView] = useState(referralPathId ? `detail:${referralPathId}` : pathView && pathView !== user.role.toLowerCase() ? pathView : defaultView)
   const [mobileNav, setMobileNav] = useState(false)
   const [showNotifications, setShowNotifications] = useState(false)
+  const [showResetModal, setShowResetModal] = useState(false)
 
   const offline = useAppStore((state) => state.isOffline)
   const referrals = useAppStore((state) => state.referrals)
@@ -288,6 +291,16 @@ function Portal({ user, onLogout }: { user: AuthUser; onLogout: () => void }) {
         </nav>
 
         <div className="sidebar-bottom">
+          {user.role === 'ADMIN' && (
+            <button
+              className="w-full flex items-center justify-center gap-2 px-3 py-2 mb-2 text-xs font-semibold rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 transition-colors"
+              onClick={() => setShowResetModal(true)}
+              title="Restore demo baseline for hackathon presentation"
+            >
+              <RotateCcw size={14} className="text-amber-400" />
+              <span>Reset Demo</span>
+            </button>
+          )}
           <button className="offline-toggle" onClick={toggleOffline}>
             <WifiOff size={16} /> {offline ? 'Reconnect Network' : 'Simulate Offline'}
           </button>
@@ -308,6 +321,17 @@ function Portal({ user, onLogout }: { user: AuthUser; onLogout: () => void }) {
           </div>
 
           <div className="topbar-user">
+            {user.role === 'ADMIN' && (
+              <button
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 transition-colors shadow-sm"
+                onClick={() => setShowResetModal(true)}
+                title="Restore demo baseline for hackathon presentation"
+                data-testid="admin-reset-demo-btn"
+              >
+                <RotateCcw size={13} className="text-amber-400" />
+                <span className="hidden sm:inline">Reset Demo</span>
+              </button>
+            )}
             <button className="notification-button" onClick={() => setShowNotifications(!showNotifications)} aria-label="Open notifications">
               <Bell size={18} />
               {notifications.some((item) => !item.isRead) && <b>{notifications.filter((item) => !item.isRead).length}</b>}
@@ -362,6 +386,14 @@ function Portal({ user, onLogout }: { user: AuthUser; onLogout: () => void }) {
           )}
         </main>
       </div>
+
+      {user.role === 'ADMIN' && (
+        <AdminDemoResetModal
+          user={user}
+          isOpen={showResetModal}
+          onClose={() => setShowResetModal(false)}
+        />
+      )}
     </div>
   )
 }
