@@ -123,13 +123,14 @@ class MockDatabase {
     return true
   }
 
-  updateHospitalDetails(hospitalId: string, updates: { phone?: string; emergencyPhone?: string; operationalStatus?: import('@/types/domain').HospitalOperationalStatus; addressLine1?: string }): boolean {
+  updateHospitalDetails(hospitalId: string, updates: { phone?: string; emergencyPhone?: string; operationalStatus?: import('@/types/domain').HospitalOperationalStatus; addressLine1?: string; verificationStatus?: import('@/types/domain').VerificationStatus }): boolean {
     const hospital = this.getHospitalById(hospitalId)
     if (!hospital) return false
     if (updates.phone) hospital.phone = updates.phone
     if (updates.emergencyPhone) hospital.emergencyPhone = updates.emergencyPhone
     if (updates.operationalStatus) hospital.operationalStatus = updates.operationalStatus
     if (updates.addressLine1) hospital.address.line1 = updates.addressLine1
+    if (updates.verificationStatus) hospital.verificationStatus = updates.verificationStatus
     hospital.lastUpdated = new Date().toISOString()
     this.addAuditEvent({
       id: `AE-HOSP-${Date.now()}`,

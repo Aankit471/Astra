@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import {
   Activity,
   AlertTriangle,
@@ -38,6 +38,7 @@ import { AdminHospitalManager } from '@/components/admin/AdminHospitalManager'
 import { HospitalPortalContainer } from '@/components/hospital/HospitalPortalContainer'
 import { DoctorPortalContainer } from '@/components/doctor-workspace/DoctorPortalContainer'
 import { useSupabaseRealtime } from '@/services/supabase/useSupabaseRealtime'
+import { auditRepository } from '@/services/repositories/auditRepository'
 
 export default function App() {
   const user = useAppStore((state) => state.user)
@@ -523,11 +524,41 @@ function AdminEscalationQueue({ referrals }: { referrals: import('@/types/domain
 }
 
 function AdminAuditLogs() {
-  const audits = useAppStore((state) => state.auditEvents)
+  const storeAudits = useAppStore((state) => state.auditEvents)
+  const [audits, setAudits] = useState(storeAudits)
+  const [_loading, setLoading] = useState(false)
+
+  const loadAudits = useCallback(async () => {
+    setLoading(true)
+    try {
+      const list = await auditRepository.list({ limit: 50 })
+      if (list && list.length > 0) setAudits(list)
+    } catch (err) {
+      console.warn('Failed to load audit logs:', err)
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    loadAudits()
+  }, [loadAudits])
+
+  useSupabaseRealtime(
+    useCallback(() => {
+      loadAudits()
+    }, [loadAudits])
+  )
 
   return (
     <div className="space-y-6">
-      <PageTitle title="System Audit Logs" subtitle="Immutable event audit trail for compliance and review." />
+      <div className="flex items-center justify-between">
+        <PageTitle title="System Audit Logs" subtitle="Immutable event audit trail for compliance and review." />
+        <span className="text-[11px] font-mono px-2.5 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-cyan-300 font-bold flex items-center gap-1.5">
+          <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+          LIVE AUDIT STREAM
+        </span>
+      </div>
       <div className="audit-list card">
         {audits.map((event) => (
           <div className="audit-row" key={event.id}>

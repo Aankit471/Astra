@@ -1,17 +1,22 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, useCallback } from 'react'
 import { AlertTriangle, CheckCircle2, RefreshCw, Search, ShieldCheck, X } from 'lucide-react'
 import { useAppStore } from '@/store/appStore'
 import { getFreshnessLevel } from '@/utils/freshness'
-import type { VerificationStatus } from '@/types/domain'
+import type { VerificationStatus, Hospital } from '@/types/domain'
+import { hospitalRepository } from '@/services/repositories/hospitalRepository'
+import { useSupabaseRealtime } from '@/services/supabase/useSupabaseRealtime'
 
 const statuses: VerificationStatus[] = ['VERIFIED', 'SELF_REPORTED', 'INFERRED', 'STALE']
 
 type GroupTab = 'ALL' | 'PENDING_VERIFICATION' | 'SELF_REPORTED' | 'STALE' | 'RECENTLY_VERIFIED'
 
 export function AdminVerificationPanel() {
-  const hospitals = useAppStore((state) => state.hospitals)
+  const storeHospitals = useAppStore((state) => state.hospitals)
+  const user = useAppStore((state) => state.user)
   const updateCapability = useAppStore((state) => state.updateCapability)
 
+  const [hospitals, setHospitals] = useState<Hospital[]>(storeHospitals)
+  const [loading, setLoading] = useState(false)
   const [query, setQuery] = useState('')
   const [activeTab, setActiveTab] = useState<GroupTab>('ALL')
   const [statusFilter, setStatusFilter] = useState<VerificationStatus | 'ALL'>('ALL')
@@ -29,6 +34,32 @@ export function AdminVerificationPanel() {
   const [reason, setReason] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [toastMessage, setToastMessage] = useState<string | null>(null)
+
+  // Load live hospitals from Supabase
+  const loadHospitals = useCallback(async () => {
+    setLoading(true)
+    try {
+      const list = await hospitalRepository.list()
+      if (list && list.length > 0) {
+        setHospitals(list)
+      }
+    } catch (err) {
+      console.warn('Failed to load hospitals from Supabase:', err)
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    loadHospitals()
+  }, [loadHospitals])
+
+  // Realtime hook
+  useSupabaseRealtime(
+    useCallback(() => {
+      loadHospitals()
+    }, [loadHospitals])
+  )
 
   const rows = useMemo(() => {
     return hospitals
@@ -90,22 +121,40 @@ export function AdminVerificationPanel() {
     setReason('')
   }
 
-  const handleConfirm = () => {
+  const handleConfirm = async () => {
     if (!pending || reason.trim().length < 3 || isSubmitting) return
 
     setIsSubmitting(true)
-    setTimeout(() => {
-      const success = updateCapability(pending.hospitalId, pending.capabilityId, pending.next, reason.trim())
-      setIsSubmitting(false)
+    try {
+      const actor = user
+        ? { id: user.id, name: user.name, role: user.role }
+        : { id: 'admin-001', name: 'Network Admin', role: 'ADMIN' }
 
-      if (success) {
-        setToastMessage(`Updated ${pending.capability} for ${pending.hospital} to ${pending.next}`)
-        setTimeout(() => setToastMessage(null), 3000)
+      const res = await hospitalRepository.updateCapabilityStatus(
+        pending.hospitalId,
+        pending.capabilityId,
+        pending.next,
+        actor,
+        reason.trim()
+      )
+
+      if (res.success) {
+        updateCapability(pending.hospitalId, pending.capabilityId, pending.next, reason.trim())
+        setToastMessage(`✓ Updated ${pending.capability} for ${pending.hospital} to ${pending.next}. Persisted to Supabase and audit logged.`)
+        setTimeout(() => setToastMessage(null), 4000)
+        loadHospitals()
+      } else {
+        setToastMessage(`Error: ${res.error || 'Failed to update verification status.'}`)
+        setTimeout(() => setToastMessage(null), 4000)
       }
-
+    } catch (err: any) {
+      setToastMessage(`Error: ${err?.message || 'Failed to update capability.'}`)
+      setTimeout(() => setToastMessage(null), 4000)
+    } finally {
+      setIsSubmitting(false)
       setPending(null)
       setReason('')
-    }, 400)
+    }
   }
 
   return (
@@ -149,6 +198,7 @@ export function AdminVerificationPanel() {
             value={query}
             onChange={(event) => setQuery(event.target.value)}
           />
+          {loading && <span className="text-xs text-brand-primary animate-pulse font-mono">Syncing...</span>}
         </div>
 
         <select

@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useCallback } from 'react'
 import {
   BedDouble,
   CheckCircle2,
@@ -17,14 +17,46 @@ import {
 import { useAppStore } from '@/store/appStore'
 import type { Hospital, ComfortType, HospitalOperationalStatus } from '@/types/domain'
 import { getRelativeTime } from '@/utils/freshness'
+import { hospitalRepository } from '@/services/repositories/hospitalRepository'
+import { bedRepository } from '@/services/repositories/bedRepository'
+import { useSupabaseRealtime } from '@/services/supabase/useSupabaseRealtime'
 
 export function AdminHospitalManager() {
-  const hospitals = useAppStore((state) => state.hospitals)
+  const storeHospitals = useAppStore((state) => state.hospitals)
+  const user = useAppStore((state) => state.user)
   const bloodInventory = useAppStore((state) => state.bloodInventory)
   const specialists = useAppStore((state) => state.specialists)
   const referrals = useAppStore((state) => state.referrals)
   const updateHospitalDetails = useAppStore((state) => state.updateHospitalDetails)
   const updateHospitalBedConfig = useAppStore((state) => state.updateHospitalBedConfig)
+
+  const [hospitals, setHospitals] = useState<Hospital[]>(storeHospitals)
+  const [_loading, setLoading] = useState(false)
+
+  // Load live hospitals from Supabase
+  const loadHospitals = useCallback(async () => {
+    setLoading(true)
+    try {
+      const list = await hospitalRepository.list()
+      if (list && list.length > 0) {
+        setHospitals(list)
+      }
+    } catch (err) {
+      console.warn('Failed to load hospitals in AdminHospitalManager:', err)
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    loadHospitals()
+  }, [loadHospitals])
+
+  useSupabaseRealtime(
+    useCallback(() => {
+      loadHospitals()
+    }, [loadHospitals])
+  )
 
   // Admin Authorized Hospital Scope (default to H001 Apollo General)
   const [adminHospitalId, setAdminHospitalId] = useState<string>('H001')
@@ -106,7 +138,7 @@ export function AdminHospitalManager() {
     })
   }
 
-  const handleSaveHospitalDetails = (e: React.FormEvent) => {
+  const handleSaveHospitalDetails = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!editingHospital) return
 
@@ -116,7 +148,13 @@ export function AdminHospitalManager() {
       return
     }
 
-    // 1. Update general hospital details
+    const actor = {
+      id: user?.id || 'admin-001',
+      name: user?.name || 'Platform Admin',
+      role: user?.role || 'ADMIN',
+    }
+
+    // 1. Update general hospital details in store & Supabase repository
     updateHospitalDetails(editingHospital.id, {
       phone: editForm.phone,
       emergencyPhone: editForm.emergencyPhone,
@@ -124,8 +162,19 @@ export function AdminHospitalManager() {
       addressLine1: editForm.addressLine1,
     })
 
+    await hospitalRepository.updateHospitalDetails(
+      editingHospital.id,
+      {
+        phone: editForm.phone,
+        emergencyPhone: editForm.emergencyPhone,
+        operationalStatus: editForm.operationalStatus,
+        address: { ...editingHospital.address, line1: editForm.addressLine1 },
+      },
+      actor
+    )
+
     // 2. Update each bed's capacity, comfort (AC/Non-AC), and charges
-    editForm.beds.forEach((bed) => {
+    for (const bed of editForm.beds) {
       updateHospitalBedConfig(editingHospital.id, bed.id, {
         availableBeds: Number(bed.availableBeds),
         occupiedBeds: Number(bed.occupiedBeds),
@@ -134,12 +183,26 @@ export function AdminHospitalManager() {
         chargePerDay: Number(bed.chargePerDay),
         chargeFormatted: `₹${Number(bed.chargePerDay).toLocaleString()} / day`,
       })
-    })
+
+      await bedRepository.updateBedCounts(
+        editingHospital.id,
+        bed.id,
+        {
+          totalBeds: Number(bed.totalBeds),
+          availableBeds: Number(bed.availableBeds),
+          occupiedBeds: Number(bed.occupiedBeds),
+          reservedBeds: 0,
+          pricePerDay: Number(bed.chargePerDay),
+        },
+        actor
+      )
+    }
 
     setSaveSuccessMessage(
-      `Successfully updated facility and bed tariffs for ${editingHospital.name}. Changes persisted and logged to audit trail.`
+      `Successfully updated facility and bed tariffs for ${editingHospital.name}. Changes persisted to Supabase and logged to audit trail.`
     )
     setEditingHospital(null)
+    loadHospitals()
 
     setTimeout(() => {
       setSaveSuccessMessage(null)

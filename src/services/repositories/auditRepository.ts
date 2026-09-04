@@ -112,7 +112,14 @@ export const auditRepository = {
 
     const mockLogs = MockDatabase.getInstance().auditEvents
     if (targetId) {
-      return mockLogs.filter((a) => a.targetId === targetId || a.actorId === targetId).slice(0, limit)
+      return mockLogs
+        .filter(
+          (a) =>
+            a.targetId === targetId ||
+            a.actorId === targetId ||
+            a.details?.hospitalId === targetId
+        )
+        .slice(0, limit)
     }
     return mockLogs.slice(0, limit)
   },

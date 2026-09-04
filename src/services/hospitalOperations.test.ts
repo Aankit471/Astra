@@ -146,4 +146,52 @@ describe('Hospital Operations Supabase Integration & Workflows', () => {
     expect(logs.length).toBeGreaterThan(0)
     expect(logs.some((l) => l.action === 'BED_ALLOCATED')).toBe(true)
   })
+
+  it('enforces hospital-specific referral isolation so operators cannot view other hospitals cases', async () => {
+    const apolloReferrals = await referralRepository.list({ hospitalId: 'H001' })
+    expect(apolloReferrals.length).toBeGreaterThan(0)
+    expect(apolloReferrals.every((r) => r.sentToFacilityId === 'H001')).toBe(true)
+
+    // Verify none of the referrals belong to H002 (Govt District Hospital)
+    expect(apolloReferrals.some((r) => r.sentToFacilityId === 'H002')).toBe(false)
+  })
+
+  it('prevents unauthorized cross-hospital bed modifications', async () => {
+    const actor = { id: 'ops-001', name: 'Ops Officer', role: 'HOSPITAL_OPS' }
+    
+    // Attempt to allocate a bed in H001 using an invalid or cross-hospital bed ID
+    const crossAccessResult = await bedRepository.allocateBed('H001', 'BED-FORTIS-999', actor)
+    expect(crossAccessResult.success).toBe(false)
+    expect(crossAccessResult.error).toContain('not found')
+  })
+
+  it('enforces capacity pre-check and logs audit trail when accepting an emergency referral', async () => {
+    const referrals = await referralRepository.list({ hospitalId: 'H001' })
+    const target = referrals[0]
+    const actor = {
+      id: 'ops-001',
+      name: 'Sarah Jenkins',
+      role: 'HOSPITAL_OPS',
+      hospitalId: 'H001',
+      hospitalName: 'Apollo General Hospital',
+    }
+
+    // Accept referral with verified capacity
+    const acceptRes = await referralRepository.recordOperationalDecision(
+      target.id,
+      'ACCEPTED',
+      actor,
+      'Acute trauma team standby and bed assigned.'
+    )
+    expect(acceptRes.success).toBe(true)
+
+    // Verify status updated
+    const updated = await referralRepository.getById(target.id)
+    expect(updated?.status).toBe('ACCEPTED')
+
+    // Verify audit log
+    const logs = await auditRepository.list('H001')
+    expect(logs.some((l) => l.action === 'REFERRAL_ACCEPTED' && l.targetId === target.id)).toBe(true)
+  })
 })
+

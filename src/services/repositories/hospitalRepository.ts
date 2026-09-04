@@ -1,6 +1,13 @@
 import { supabase, isSupabaseConfigured } from '@/lib/supabaseClient'
 import MockDatabase from '@/services/mock/mockDb'
 import type { Hospital, VerificationStatus } from '@/types/domain'
+import { auditRepository } from './auditRepository'
+
+export interface AdminActor {
+  id: string
+  name: string
+  role: string
+}
 
 export const hospitalRepository = {
   /**
@@ -54,7 +61,7 @@ export const hospitalRepository = {
                   item: 'ICU',
                   label: 'Intensive Care Unit (ICU)',
                   available: true,
-                  verificationStatus: 'VERIFIED',
+                  verificationStatus: (row.capabilities?.capabilities?.find((c: any) => c.item === 'ICU')?.verificationStatus) || row.verification_status || 'VERIFIED',
                   lastUpdated: row.last_updated || new Date().toISOString(),
                 },
                 {
@@ -63,7 +70,7 @@ export const hospitalRepository = {
                   item: 'CARDIAC_CATH_LAB',
                   label: 'Cardiac Cath Lab',
                   available: true,
-                  verificationStatus: 'VERIFIED',
+                  verificationStatus: (row.capabilities?.capabilities?.find((c: any) => c.item === 'CARDIAC_CATH_LAB')?.verificationStatus) || row.verification_status || 'VERIFIED',
                   lastUpdated: row.last_updated || new Date().toISOString(),
                 },
               ],
@@ -107,20 +114,208 @@ export const hospitalRepository = {
   },
 
   /**
-   * Update capability verification status.
+   * Update overall hospital verification status.
+   * Enforces strict ADMIN RBAC and audit logging.
    */
-  async updateVerification(hospitalId: string, status: VerificationStatus): Promise<boolean> {
+  async updateVerificationStatus(
+    hospitalId: string,
+    status: VerificationStatus,
+    actor: AdminActor,
+    reason = 'Administrative verification review'
+  ): Promise<{ success: boolean; error?: string }> {
+    if (actor.role !== 'ADMIN') {
+      return { success: false, error: 'Unauthorized: Only platform administrators can verify hospitals.' }
+    }
+
+    const timestamp = new Date().toISOString()
+
     if (isSupabaseConfigured()) {
       try {
         const { error } = await supabase
           .from('hospitals')
-          .update({ verification_status: status, last_updated: new Date().toISOString() })
+          .update({ verification_status: status, last_updated: timestamp })
           .eq('id', hospitalId)
-        if (!error) return true
-      } catch (err) {
-        console.warn('Supabase updateVerification error:', err)
+
+        if (!error) {
+          await auditRepository.log({
+            action: 'ADMIN_HOSPITAL_VERIFIED',
+            actorId: actor.id,
+            actorName: actor.name,
+            actorRole: 'ADMIN',
+            targetType: 'HOSPITAL',
+            targetId: hospitalId,
+            targetLabel: `Hospital ${hospitalId} Verification Status Changed`,
+            details: { newStatus: status, reason },
+          })
+          MockDatabase.getInstance().updateHospitalDetails(hospitalId, { verificationStatus: status })
+          return { success: true }
+        }
+        return { success: false, error: error.message }
+      } catch (err: any) {
+        console.warn('Supabase updateVerificationStatus error, using fallback:', err)
       }
     }
-    return MockDatabase.getInstance().updateHospitalDetails(hospitalId, {})
+
+    MockDatabase.getInstance().updateHospitalDetails(hospitalId, { verificationStatus: status })
+    await auditRepository.log({
+      action: 'ADMIN_HOSPITAL_VERIFIED',
+      actorId: actor.id,
+      actorName: actor.name,
+      actorRole: 'ADMIN',
+      targetType: 'HOSPITAL',
+      targetId: hospitalId,
+      targetLabel: `Hospital ${hospitalId} Verification Status Changed`,
+      details: { newStatus: status, reason, mode: 'OFFLINE_FALLBACK' },
+    })
+    return { success: true }
+  },
+
+  /**
+   * Update capability verification status.
+   * Enforces strict ADMIN RBAC and audit logging.
+   */
+  async updateCapabilityStatus(
+    hospitalId: string,
+    capabilityId: string,
+    status: VerificationStatus,
+    actor: AdminActor,
+    reason = 'Administrative capability verification'
+  ): Promise<{ success: boolean; error?: string }> {
+    if (actor.role !== 'ADMIN') {
+      return { success: false, error: 'Unauthorized: Only platform administrators can verify capabilities.' }
+    }
+
+    const timestamp = new Date().toISOString()
+
+    if (isSupabaseConfigured()) {
+      try {
+        // Fetch current hospital row to update capability JSON
+        const { data: hosp } = await supabase.from('hospitals').select('*').eq('id', hospitalId).single()
+        if (hosp) {
+          const capObj = hosp.capabilities || { emergencyCategories: [], capabilities: [] }
+          const capList = Array.isArray(capObj.capabilities) ? capObj.capabilities : []
+          const existing = capList.find((c: any) => c.id === capabilityId || c.item === capabilityId)
+          if (existing) {
+            existing.verificationStatus = status
+            existing.lastUpdated = timestamp
+          } else {
+            capList.push({
+              id: capabilityId,
+              item: capabilityId,
+              label: capabilityId,
+              available: true,
+              verificationStatus: status,
+              lastUpdated: timestamp,
+            })
+          }
+          capObj.capabilities = capList
+
+          await supabase
+            .from('hospitals')
+            .update({ capabilities: capObj, last_updated: timestamp })
+            .eq('id', hospitalId)
+        }
+
+        await auditRepository.log({
+          action: 'CAPABILITY_STATUS_CHANGED',
+          actorId: actor.id,
+          actorName: actor.name,
+          actorRole: 'ADMIN',
+          targetType: 'HOSPITAL',
+          targetId: hospitalId,
+          targetLabel: `Capability ${capabilityId} status set to ${status}`,
+          details: { capabilityId, status, reason },
+        })
+
+        MockDatabase.getInstance().updateCapability(hospitalId, capabilityId, status)
+        return { success: true }
+      } catch (err: any) {
+        console.warn('Supabase updateCapabilityStatus error, using fallback:', err)
+      }
+    }
+
+    MockDatabase.getInstance().updateCapability(hospitalId, capabilityId, status)
+    await auditRepository.log({
+      action: 'CAPABILITY_STATUS_CHANGED',
+      actorId: actor.id,
+      actorName: actor.name,
+      actorRole: 'ADMIN',
+      targetType: 'HOSPITAL',
+      targetId: hospitalId,
+      targetLabel: `Capability ${capabilityId} status set to ${status}`,
+      details: { capabilityId, status, reason, mode: 'OFFLINE_FALLBACK' },
+    })
+    return { success: true }
+  },
+
+  /**
+   * Update hospital operational details.
+   * Enforces strict ADMIN RBAC and audit logging.
+   */
+  async updateHospitalDetails(
+    hospitalId: string,
+    updates: Partial<Hospital>,
+    actor: AdminActor
+  ): Promise<{ success: boolean; error?: string }> {
+    if (actor.role !== 'ADMIN') {
+      return { success: false, error: 'Unauthorized: Only platform administrators can modify hospital records.' }
+    }
+
+    const timestamp = new Date().toISOString()
+
+    if (isSupabaseConfigured()) {
+      try {
+        const updatePayload: Record<string, any> = { last_updated: timestamp }
+        if (updates.phone) updatePayload.phone = updates.phone
+        if (updates.emergencyPhone) updatePayload.emergency_phone = updates.emergencyPhone
+        if (updates.operationalStatus) updatePayload.operational_status = updates.operationalStatus
+        if (updates.address?.line1) updatePayload.address_line1 = updates.address.line1
+
+        const { error } = await supabase.from('hospitals').update(updatePayload).eq('id', hospitalId)
+        if (!error) {
+          await auditRepository.log({
+            action: 'ADMIN_HOSPITAL_UPDATE',
+            actorId: actor.id,
+            actorName: actor.name,
+            actorRole: 'ADMIN',
+            targetType: 'HOSPITAL',
+            targetId: hospitalId,
+            targetLabel: `Hospital ${hospitalId} operational profile updated`,
+            details: { updates },
+          })
+          MockDatabase.getInstance().updateHospitalDetails(hospitalId, updates)
+          return { success: true }
+        }
+        return { success: false, error: error.message }
+      } catch (err: any) {
+        console.warn('Supabase updateHospitalDetails error, using fallback:', err)
+      }
+    }
+
+    MockDatabase.getInstance().updateHospitalDetails(hospitalId, updates)
+    await auditRepository.log({
+      action: 'ADMIN_HOSPITAL_UPDATE',
+      actorId: actor.id,
+      actorName: actor.name,
+      actorRole: 'ADMIN',
+      targetType: 'HOSPITAL',
+      targetId: hospitalId,
+      targetLabel: `Hospital ${hospitalId} operational profile updated`,
+      details: { updates, mode: 'OFFLINE_FALLBACK' },
+    })
+    return { success: true }
+  },
+
+  /**
+   * Legacy method for backwards compatibility.
+   */
+  async updateVerification(hospitalId: string, status: VerificationStatus): Promise<boolean> {
+    const res = await this.updateVerificationStatus(
+      hospitalId,
+      status,
+      { id: 'admin-system', name: 'Platform Admin', role: 'ADMIN' },
+      'Verification status change'
+    )
+    return res.success
   },
 }
