@@ -142,26 +142,37 @@ export function HospitalPortalLayout({
         {/* Right: Facility Selector, Status, Notifications & Profile */}
         <div className="flex items-center gap-3">
           {/* Facility indicator / selector */}
-          <div className="relative hidden sm:flex items-center gap-2 bg-[#070b14] border border-slate-800 px-2.5 py-1.5 rounded-xl text-xs">
-            <HospitalIcon size={14} className="text-cyan-400" />
-            <select
-              value={selectedHospitalId}
-              onChange={(e) => onSelectHospitalId(e.target.value)}
-              className="bg-transparent text-slate-200 font-bold focus:outline-none cursor-pointer pr-2 text-xs"
-            >
-              {HOSPITALS.map((h) => (
-                <option key={h.id} value={h.id} className="bg-slate-900 text-slate-100">
-                  {h.name} ({h.id})
-                </option>
-              ))}
-            </select>
-          </div>
+          {user.role === 'HOSPITAL_OPS' ? (
+            <div className="relative hidden sm:flex items-center gap-2 bg-[#070b14] border border-cyan-500/30 px-3 py-1.5 rounded-xl text-xs shadow-sm">
+              <HospitalIcon size={14} className="text-cyan-400" />
+              <span className="text-slate-100 font-bold">{currentHospital.name}</span>
+              <span className="text-[10px] font-mono bg-cyan-950/80 text-cyan-300 border border-cyan-500/30 px-1.5 py-0.5 rounded">
+                {currentHospital.id}
+              </span>
+            </div>
+          ) : (
+            <div className="relative hidden sm:flex items-center gap-2 bg-[#070b14] border border-slate-800 px-2.5 py-1.5 rounded-xl text-xs">
+              <HospitalIcon size={14} className="text-cyan-400" />
+              <select
+                value={selectedHospitalId}
+                onChange={(e) => onSelectHospitalId(e.target.value)}
+                className="bg-transparent text-slate-200 font-bold focus:outline-none cursor-pointer pr-2 text-xs"
+              >
+                {HOSPITALS.map((h) => (
+                  <option key={h.id} value={h.id} className="bg-slate-900 text-slate-100">
+                    {h.name} ({h.id})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {/* System Status indicator */}
-          <div className="hidden xl:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-[11px] text-emerald-400 font-semibold">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-            <span>99.9% Operational</span>
+          <div className="hidden xl:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-[11px] text-cyan-400 font-semibold">
+            <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+            <span>LIVE TELEMETRY</span>
           </div>
+
 
           {/* Notifications bell */}
           <button

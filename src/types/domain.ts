@@ -142,6 +142,8 @@ export type BedCategory =
   | 'MATERNITY'
   | 'PEDIATRIC'
   | 'TRAUMA'
+  | 'PRIVATE'
+  | 'SEMI_PRIVATE'
   | 'OTHER'
 
 export type RoomType = 'PRIVATE' | 'SHARED'
@@ -160,6 +162,7 @@ export interface BedAvailability {
   totalBeds: number
   occupiedBeds: number
   availableBeds: number
+  reservedBeds?: number
   availabilityStatus: AvailabilityStatus
   verificationStatus: VerificationStatus
   lastUpdatedAt: string // ISO 8601
@@ -168,6 +171,7 @@ export interface BedAvailability {
   chargePerDay?: number // in INR (₹)
   chargeFormatted?: string // e.g. "₹3,500 / day"
 }
+
 
 // ── Hospital ───────────────────────────────────────────────────────────────
 

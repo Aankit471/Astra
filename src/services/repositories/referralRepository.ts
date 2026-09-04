@@ -2,6 +2,9 @@ import { supabase, isSupabaseConfigured } from '@/lib/supabaseClient'
 import MockDatabase from '@/services/mock/mockDb'
 import { referralService } from '@/services/mock/referralService'
 import type { PatientBrief, Referral, RequiredCapability, ReferralTimelineEvent } from '@/types/domain'
+import { bedRepository } from './bedRepository'
+import { auditRepository } from './auditRepository'
+
 
 export interface DoctorActor {
   id: string
@@ -35,7 +38,12 @@ export const referralRepository = {
 
         const { data, error } = await query.order('updated_at', { ascending: false })
         if (!error && data && data.length > 0) {
-          return data.map((r: any) => ({
+          const urgencyRank: Record<string, number> = {
+            IMMEDIATE: 1,
+            URGENT: 2,
+            SEMI_URGENT: 3,
+          }
+          const mapped = data.map((r: any) => ({
             id: r.id,
             status: r.status,
             createdAt: r.created_at,
@@ -75,6 +83,13 @@ export const referralRepository = {
             decision: r.decision,
             assignedDoctorId: r.assigned_doctor_id,
           }))
+
+          return mapped.sort((a: any, b: any) => {
+            const rankA = urgencyRank[a.patient?.urgencyLevel || ''] || 99
+            const rankB = urgencyRank[b.patient?.urgencyLevel || ''] || 99
+            if (rankA !== rankB) return rankA - rankB
+            return new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime()
+          })
         }
       } catch (err) {
         console.warn('Supabase referral list error, falling back to mock:', err)
@@ -82,12 +97,25 @@ export const referralRepository = {
     }
 
     const mockDb = MockDatabase.getInstance()
-    return mockDb.referrals.filter((r) => {
-      if (filters?.hospitalId && r.sentToFacilityId !== filters.hospitalId) return false
-      if (filters?.createdBy && r.createdBy !== filters.createdBy) return false
-      if (filters?.doctorId && r.assignedDoctorId !== filters.doctorId) return false
-      return true
-    })
+    const urgencyRank: Record<string, number> = {
+      IMMEDIATE: 1,
+      URGENT: 2,
+      SEMI_URGENT: 3,
+    }
+    return mockDb.referrals
+      .filter((r) => {
+        if (filters?.hospitalId && r.sentToFacilityId !== filters.hospitalId) return false
+        if (filters?.createdBy && r.createdBy !== filters.createdBy) return false
+        if (filters?.doctorId && r.assignedDoctorId !== filters.doctorId) return false
+        return true
+      })
+      .sort((a, b) => {
+        const rankA = urgencyRank[a.patient?.urgencyLevel || ''] || 99
+        const rankB = urgencyRank[b.patient?.urgencyLevel || ''] || 99
+        if (rankA !== rankB) return rankA - rankB
+        return new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime()
+      })
+
   },
 
   /**
@@ -323,5 +351,198 @@ export const referralRepository = {
       return true
     }
     return false
-  }
+  },
+
+  /**
+   * Hospital Operations: Accept or Decline an incoming emergency referral.
+   * - Performs capacity pre-check on accept (verifies available beds > 0).
+   *   If capacity is 0: returns "Required capacity currently unavailable."
+   * - Requires a reason on decline.
+   * - Creates referral_events and audit_logs records.
+   */
+  async recordOperationalDecision(
+    referralId: string,
+    decision: 'ACCEPTED' | 'DECLINED',
+    actor: { id: string; name: string; role: string; hospitalId: string; hospitalName: string },
+    reason?: string
+  ): Promise<{ success: boolean; error?: string }> {
+    const timestamp = new Date().toISOString()
+
+    if (decision === 'ACCEPTED') {
+      // 1. Capacity Pre-Check: verify hospital has suitable bed availability
+      const beds = await bedRepository.getByHospitalId(actor.hospitalId)
+      const totalAvailable = beds.reduce((sum, b) => sum + (b.availableBeds || 0), 0)
+
+      if (totalAvailable <= 0) {
+        return {
+          success: false,
+          error: 'Required capacity currently unavailable.',
+        }
+      }
+
+      if (isSupabaseConfigured()) {
+        try {
+          const { error: refErr } = await supabase
+            .from('referrals')
+            .update({
+              status: 'ACCEPTED',
+              sent_to_facility_id: actor.hospitalId,
+              sent_to_facility_name: actor.hospitalName,
+              updated_at: timestamp,
+            })
+            .eq('id', referralId)
+
+          if (!refErr) {
+            await supabase.from('referral_events').insert({
+              referral_id: referralId,
+              event: 'Referral Accepted by Hospital Operations',
+              actor: actor.name,
+              actor_role: 'HOSPITAL_OPS',
+              facility_id: actor.hospitalId,
+              facility_name: actor.hospitalName,
+              notes: reason || 'Bed and clinical intake verified by Operations Team.',
+              is_system_event: false,
+              timestamp,
+            })
+
+            await auditRepository.log({
+              action: 'REFERRAL_ACCEPTED',
+              actorId: actor.id,
+              actorName: actor.name,
+              actorRole: actor.role,
+              targetType: 'REFERRAL',
+              targetId: referralId,
+              targetLabel: `Referral #${referralId} Accepted`,
+              details: { hospitalId: actor.hospitalId, reason },
+            })
+
+            return { success: true }
+          }
+        } catch (err: any) {
+          console.warn('Supabase operational accept failed, using mock fallback:', err)
+        }
+      }
+
+
+      // Mock fallback
+      const mockDb = MockDatabase.getInstance()
+      const target = mockDb.getReferralById(referralId)
+      if (target) {
+        target.status = 'ACCEPTED'
+        target.sentToFacilityId = actor.hospitalId
+        target.sentToFacilityName = actor.hospitalName
+        target.updatedAt = timestamp
+        target.timeline.unshift({
+          id: `evt-${Date.now()}`,
+          event: 'Referral Accepted by Hospital Operations',
+          actor: actor.name,
+          timestamp,
+          notes: reason || 'Bed and clinical capacity confirmed.',
+          isSystemEvent: false,
+        })
+        mockDb.upsertReferral(target)
+
+        await auditRepository.log({
+          action: 'REFERRAL_ACCEPTED',
+          actorId: actor.id,
+          actorName: actor.name,
+          actorRole: actor.role,
+          targetType: 'REFERRAL',
+          targetId: referralId,
+          targetLabel: `Referral #${referralId} Accepted`,
+          details: { hospitalId: actor.hospitalId, reason, mode: 'OFFLINE_FALLBACK' },
+        })
+
+        return { success: true }
+      }
+
+      return { success: false, error: 'Referral record not found.' }
+    }
+
+    if (decision === 'DECLINED') {
+      if (!reason || !reason.trim()) {
+        return {
+          success: false,
+          error: 'A reason is required to decline an incoming emergency referral.',
+        }
+      }
+
+      if (isSupabaseConfigured()) {
+        try {
+          const { error: refErr } = await supabase
+            .from('referrals')
+            .update({
+              status: 'DECLINED',
+              updated_at: timestamp,
+            })
+            .eq('id', referralId)
+
+          if (!refErr) {
+            await supabase.from('referral_events').insert({
+              referral_id: referralId,
+              event: 'Referral Declined by Receiving Facility Operations',
+              actor: actor.name,
+              actor_role: 'HOSPITAL_OPS',
+              facility_id: actor.hospitalId,
+              facility_name: actor.hospitalName,
+              notes: reason,
+              is_system_event: false,
+              timestamp,
+            })
+
+            await auditRepository.log({
+              action: 'REFERRAL_DECLINED',
+              actorId: actor.id,
+              actorName: actor.name,
+              actorRole: actor.role,
+              targetType: 'REFERRAL',
+              targetId: referralId,
+              targetLabel: `Referral #${referralId} Declined`,
+              details: { hospitalId: actor.hospitalId, reason },
+            })
+
+            return { success: true }
+          }
+        } catch (err: any) {
+          console.warn('Supabase operational decline failed, using mock fallback:', err)
+        }
+      }
+
+      // Mock fallback
+      const mockDb = MockDatabase.getInstance()
+      const target = mockDb.getReferralById(referralId)
+      if (target) {
+        target.status = 'DECLINED'
+        target.updatedAt = timestamp
+        target.timeline.unshift({
+          id: `evt-${Date.now()}`,
+          event: 'Referral Declined by Receiving Facility Operations',
+          actor: actor.name,
+          timestamp,
+          notes: reason,
+          isSystemEvent: false,
+        })
+        mockDb.upsertReferral(target)
+
+        await auditRepository.log({
+          action: 'REFERRAL_DECLINED',
+          actorId: actor.id,
+          actorName: actor.name,
+          actorRole: actor.role,
+          targetType: 'REFERRAL',
+          targetId: referralId,
+          targetLabel: `Referral #${referralId} Declined`,
+          details: { hospitalId: actor.hospitalId, reason, mode: 'OFFLINE_FALLBACK' },
+        })
+
+        return { success: true }
+      }
+
+
+      return { success: false, error: 'Referral record not found.' }
+    }
+
+    return { success: false, error: 'Invalid decision type.' }
+  },
 }
+

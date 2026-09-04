@@ -32,12 +32,17 @@ export function HospitalPortalContainer({
 }: HospitalPortalContainerProps) {
   const [activeView, setActiveView] = useState<HospitalViewTab>('dashboard')
   const [globalSearchQuery, setGlobalSearchQuery] = useState('')
-  const [selectedHospitalId, setSelectedHospitalId] = useState<string>(
-    user.hospitalId || 'H001'
-  )
+
+  // Hospital-Specific Data Isolation:
+  // Hospital Operations role is strictly locked to their assigned hospitalId.
+  const assignedHospitalId = user.hospitalId || 'H001'
+  const [selectedHospitalId, setSelectedHospitalId] = useState<string>(assignedHospitalId)
+
+  // Guarantee that Hospital Operations operator cannot escape their assigned hospital
+  const effectiveHospitalId = user.role === 'HOSPITAL_OPS' ? assignedHospitalId : selectedHospitalId
 
   const currentHospital =
-    HOSPITALS.find((h) => h.id === selectedHospitalId) || HOSPITALS[0]
+    HOSPITALS.find((h) => h.id === effectiveHospitalId) || HOSPITALS[0]
 
   return (
     <HospitalPortalLayout
@@ -47,23 +52,28 @@ export function HospitalPortalContainer({
       onLogout={onLogout}
       globalSearchQuery={globalSearchQuery}
       onGlobalSearchChange={setGlobalSearchQuery}
-      selectedHospitalId={selectedHospitalId}
+      selectedHospitalId={effectiveHospitalId}
       onSelectHospitalId={setSelectedHospitalId}
     >
       {activeView === 'dashboard' && (
         <HospitalDashboard
           hospital={currentHospital}
+          user={user}
           onNavigate={(v) => setActiveView(v as HospitalViewTab)}
         />
       )}
 
-      {activeView === 'referrals' && <HospitalReferralsView />}
+      {activeView === 'referrals' && (
+        <HospitalReferralsView hospitalId={effectiveHospitalId} user={user} />
+      )}
 
       {activeView === 'patients' && <HospitalPatientsView />}
 
       {activeView === 'admissions' && <HospitalAdmissionsView />}
 
-      {activeView === 'beds' && <HospitalBedsCapacityView />}
+      {activeView === 'beds' && (
+        <HospitalBedsCapacityView hospitalId={effectiveHospitalId} user={user} />
+      )}
 
       {activeView === 'wards' && <HospitalWardsView />}
 
