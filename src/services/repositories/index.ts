@@ -1,0 +1,6 @@
+export * from './hospitalRepository'
+export * from './bedRepository'
+export * from './bloodRepository'
+export * from './doctorRepository'
+export * from './patientRepository'
+export * from './referralRepository'

@@ -13,9 +13,17 @@ import type { Hospital, BedCategory } from '@/types/domain'
 import { getRelativeTime } from '@/utils/freshness'
 import { BedAvailabilityPanel } from '@/components/data-display/BedAvailabilityPanel'
 
+import { hospitalRepository, bloodRepository } from '@/services/repositories'
+import { useEffect } from 'react'
+
 export function UserFacilitiesView() {
-  const hospitals = useAppStore((state) => state.hospitals)
-  const bloodInventory = useAppStore((state) => state.bloodInventory)
+  const storeHospitals = useAppStore((state) => state.hospitals)
+  const storeBlood = useAppStore((state) => state.bloodInventory)
+
+  const [hospitals, setHospitals] = useState<Hospital[]>(storeHospitals)
+  const [bloodInventory, setBloodInventory] = useState(storeBlood)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   const [searchQuery, setSearchQuery] = useState('')
   const [typeFilter, setTypeFilter] = useState<'ALL' | 'PRIVATE' | 'GOVERNMENT' | 'MISSION'>('ALL')
@@ -23,6 +31,27 @@ export function UserFacilitiesView() {
   const [bedCategoryFilter, setBedCategoryFilter] = useState<BedCategory | 'ALL'>('ALL')
   const [bloodFilter, setBloodFilter] = useState<string>('ALL')
   const [selectedHospitalForModal, setSelectedHospitalForModal] = useState<Hospital | null>(null)
+
+  const loadData = async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const [hList, bList] = await Promise.all([
+        hospitalRepository.list(),
+        bloodRepository.list(),
+      ])
+      if (hList && hList.length > 0) setHospitals(hList)
+      if (bList && bList.length > 0) setBloodInventory(bList)
+    } catch (err: any) {
+      setError(err?.message || 'Failed to load live facility telemetry.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    loadData()
+  }, [])
 
   // Filter hospitals based on search and category filters
   const filteredHospitals = useMemo(() => {
@@ -166,6 +195,33 @@ export function UserFacilitiesView() {
           </div>
         </div>
       </div>
+
+      {/* ── Status Messages ────────────────────────────────────────────── */}
+      {loading && (
+        <div className="card p-6 text-center border-cyan-500/20 bg-cyan-950/10 animate-pulse space-y-2">
+          <p className="text-cyan-400 font-semibold text-sm">Syncing live hospital bed & blood telemetry from Supabase...</p>
+          <span className="text-xs text-slate-400 block">Connecting to real-time network database...</span>
+        </div>
+      )}
+
+      {error && !loading && (
+        <div className="card p-4 border-amber-500/30 bg-amber-950/20 flex items-center justify-between gap-3 text-xs text-amber-300">
+          <span>{error}</span>
+          <button
+            onClick={loadData}
+            className="px-3 py-1 bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 rounded text-amber-200 font-bold"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
+      {!loading && filteredHospitals.length === 0 && (
+        <div className="card p-8 text-center text-slate-400 text-xs space-y-2">
+          <p className="font-semibold text-slate-300 text-sm">No facilities match the selected filters.</p>
+          <p>Try clearing your search query or selecting "All" for bed comfort and facility type.</p>
+        </div>
+      )}
 
       {/* ── Hospital Cards Grid ────────────────────────────────────────── */}
       <div className="space-y-5">
