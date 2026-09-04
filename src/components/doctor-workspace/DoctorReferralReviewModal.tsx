@@ -146,6 +146,20 @@ export function DoctorReferralReviewModal({
   }), [user, referral])
 
   useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (activeActionModal) {
+          setActiveActionModal(null)
+        } else {
+          onClose()
+        }
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [activeActionModal, onClose])
+
+  useEffect(() => {
     async function loadClinicalData() {
       try {
         const [bloodList, bedsList] = await Promise.all([

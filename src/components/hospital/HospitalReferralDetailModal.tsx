@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   AlertTriangle,
   BedDouble,
@@ -36,6 +36,16 @@ export function HospitalReferralDetailModal({
   const [declineReason, setDeclineReason] = useState('')
   const [isProcessing, setIsProcessing] = useState(false)
   const [modalError, setModalError] = useState<string | null>(null)
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [onClose])
 
   const p = referral.patient || {
     referenceCode: 'CASE-1042',

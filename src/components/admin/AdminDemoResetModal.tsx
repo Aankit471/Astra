@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { AlertTriangle, CheckCircle2, RefreshCw, RotateCcw, ShieldCheck, X } from 'lucide-react'
 import type { AuthUser } from '@/types/auth'
 import { executeDemoReset } from '@/services/demoResetService'
@@ -19,6 +19,17 @@ export function AdminDemoResetModal({
   const [isResetting, setIsResetting] = useState(false)
   const [resultMessage, setResultMessage] = useState<string | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!isOpen) return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !isResetting) {
+        onClose()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [isOpen, isResetting, onClose])
 
   if (!isOpen) return null
 

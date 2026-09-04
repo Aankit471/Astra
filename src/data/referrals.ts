@@ -11,7 +11,7 @@ export const REFERRALS: Referral[] = [
     status: 'REVIEWING',
     createdAt: m(45),
     updatedAt: m(8),
-    createdBy: 'user-001',
+    createdBy: 'dispatch-001',
     patient: {
       referenceCode: 'AST-1042',
       age: 54,
@@ -44,7 +44,7 @@ export const REFERRALS: Referral[] = [
     assignedTeam: 'Emergency Cardiology',
     consultingSpecialties: ['Critical Care', 'Anesthesiology'],
     timeline: [
-      { id: 'TL-001', timestamp: m(45), event: 'Emergency referral created', actor: 'Priya Sharma', actorRole: 'USER', isSystemEvent: false },
+      { id: 'TL-001', timestamp: m(45), event: 'Emergency referral created', actor: '108 Emergency Dispatch', actorRole: 'DISPATCH', isSystemEvent: false },
       { id: 'TL-002', timestamp: m(40), event: 'Matching suitable facilities', actor: 'ASTRA System', actorRole: 'SYSTEM', isSystemEvent: true },
       { id: 'TL-003', timestamp: m(35), event: 'Referral sent to Apollo General Hospital', facilityId: 'H001', facilityName: 'Apollo General Hospital', actor: 'ASTRA System', actorRole: 'SYSTEM', isSystemEvent: true },
       { id: 'TL-004', timestamp: m(33), event: 'Routed to clinical team (Dr. Ananya Mehta)', actor: 'Rajesh Kumar', actorRole: 'HOSPITAL_OPS', isSystemEvent: false },
@@ -57,7 +57,7 @@ export const REFERRALS: Referral[] = [
     status: 'ESCALATED',
     createdAt: h(3),
     updatedAt: m(15),
-    createdBy: 'user-001',
+    createdBy: 'dispatch-001',
     patient: {
       referenceCode: 'AST-1043',
       age: 28,
@@ -93,7 +93,7 @@ export const REFERRALS: Referral[] = [
       declineNotes: 'On-call neonatologist not available currently',
     },
     timeline: [
-      { id: 'TL-010', timestamp: h(3),  event: 'Emergency referral created', actor: 'Priya Sharma', actorRole: 'USER', isSystemEvent: false },
+      { id: 'TL-010', timestamp: h(3),  event: 'Emergency referral created', actor: '108 Emergency Dispatch', actorRole: 'DISPATCH', isSystemEvent: false },
       { id: 'TL-011', timestamp: h(2),  event: 'Referral sent to Government District Hospital', facilityId: 'H002', facilityName: 'Government District Hospital', actor: 'ASTRA System', actorRole: 'SYSTEM', isSystemEvent: true },
       { id: 'TL-012', timestamp: m(45), event: 'Declined — Specialist unavailable', actor: 'Dr. Suresh Menon', actorRole: 'DOCTOR', facilityId: 'H002', isSystemEvent: false, notes: 'Neonatologist not available' },
       { id: 'TL-013', timestamp: m(44), event: "Escalating — Contacting St. Mary's Mission Hospital", actor: 'ASTRA System', actorRole: 'SYSTEM', isSystemEvent: true },
@@ -107,7 +107,7 @@ export const REFERRALS: Referral[] = [
     status: 'ARRIVED',
     createdAt: h(8),
     updatedAt: h(2),
-    createdBy: 'user-001',
+    createdBy: 'dispatch-001',
     patient: {
       referenceCode: 'AST-1044',
       age: 42,
@@ -145,7 +145,7 @@ export const REFERRALS: Referral[] = [
       decidedAt: h(7),
     },
     timeline: [
-      { id: 'TL-020', timestamp: h(8),   event: 'Emergency referral created', actor: 'Priya Sharma', actorRole: 'USER', isSystemEvent: false },
+      { id: 'TL-020', timestamp: h(8),   event: 'Emergency referral created', actor: '108 Emergency Dispatch', actorRole: 'DISPATCH', isSystemEvent: false },
       { id: 'TL-021', timestamp: h(7.5), event: 'Referral sent to Apollo General Hospital', facilityId: 'H001', facilityName: 'Apollo General Hospital', actor: 'ASTRA System', actorRole: 'SYSTEM', isSystemEvent: true },
       { id: 'TL-022', timestamp: h(7),   event: 'Accepted by Dr. Ananya Mehta', actor: 'Dr. Ananya Mehta', actorRole: 'DOCTOR', isSystemEvent: false },
       { id: 'TL-023', timestamp: h(6.5), event: 'Administrative confirmation completed', actor: 'Rajesh Kumar', actorRole: 'HOSPITAL_OPS', isSystemEvent: false },
@@ -159,7 +159,7 @@ export const REFERRALS: Referral[] = [
     status: 'REVIEWING',
     createdAt: m(30),
     updatedAt: m(5),
-    createdBy: 'user-001',
+    createdBy: 'dispatch-001',
     patient: {
       referenceCode: 'AST-1045',
       age: 62,
@@ -189,7 +189,7 @@ export const REFERRALS: Referral[] = [
     assignedTeam: 'Acute Stroke Response',
     consultingSpecialties: ['Neurosurgery', 'Critical Care'],
     timeline: [
-      { id: 'TL-030', timestamp: m(30), event: 'Emergency stroke referral created', actor: 'Priya Sharma', actorRole: 'USER', isSystemEvent: false },
+      { id: 'TL-030', timestamp: m(30), event: 'Emergency stroke referral created', actor: '108 Emergency Dispatch', actorRole: 'DISPATCH', isSystemEvent: false },
       { id: 'TL-031', timestamp: m(25), event: 'Referral sent to Apollo General Hospital', facilityId: 'H001', facilityName: 'Apollo General Hospital', actor: 'ASTRA System', actorRole: 'SYSTEM', isSystemEvent: true },
       { id: 'TL-032', timestamp: m(20), event: 'Assigned to Dr. Vikram Rao (Neurology)', actor: 'Sarah Jenkins', actorRole: 'HOSPITAL_OPS', isSystemEvent: false },
     ],
@@ -201,7 +201,7 @@ export const REFERRALS: Referral[] = [
     status: 'REVIEWING',
     createdAt: m(18),
     updatedAt: m(2),
-    createdBy: 'user-001',
+    createdBy: 'dispatch-001',
     patient: {
       referenceCode: 'AST-1046',
       age: 49,
@@ -229,7 +229,7 @@ export const REFERRALS: Referral[] = [
     assignedDepartment: 'Emergency Cardiac Care',
     assignedTeam: 'Emergency Cardiology',
     timeline: [
-      { id: 'TL-040', timestamp: m(18), event: 'Emergency cardiac referral created', actor: 'Priya Sharma', actorRole: 'USER', isSystemEvent: false },
+      { id: 'TL-040', timestamp: m(18), event: 'Emergency cardiac referral created', actor: '108 Emergency Dispatch', actorRole: 'DISPATCH', isSystemEvent: false },
       { id: 'TL-041', timestamp: m(15), event: 'Referral sent to Apollo General Hospital', facilityId: 'H001', facilityName: 'Apollo General Hospital', actor: 'ASTRA System', actorRole: 'SYSTEM', isSystemEvent: true },
       { id: 'TL-042', timestamp: m(10), event: 'Routed to Dr. Ananya Mehta for triage', actor: 'Sarah Jenkins', actorRole: 'HOSPITAL_OPS', isSystemEvent: false },
     ],

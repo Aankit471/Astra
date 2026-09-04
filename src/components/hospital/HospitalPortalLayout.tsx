@@ -24,6 +24,7 @@ import {
 } from 'lucide-react'
 import type { AuthUser } from '@/types/auth'
 import { HOSPITALS } from '@/data/hospitals'
+import { useAppStore } from '@/store/appStore'
 
 export type HospitalViewTab =
   | 'dashboard'
@@ -67,6 +68,7 @@ export function HospitalPortalLayout({
 }: HospitalPortalLayoutProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [showNotificationsDrawer, setShowNotificationsDrawer] = useState(false)
+  const isOffline = useAppStore((state) => state.isOffline)
 
   const currentHospital =
     HOSPITALS.find((h) => h.id === selectedHospitalId) || HOSPITALS[0]
@@ -168,10 +170,17 @@ export function HospitalPortalLayout({
           )}
 
           {/* System Status indicator */}
-          <div className="hidden xl:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-[11px] text-cyan-400 font-semibold">
-            <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
-            <span>LIVE TELEMETRY</span>
-          </div>
+          {!isOffline ? (
+            <div className="hidden xl:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-[11px] text-cyan-400 font-semibold">
+              <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+              <span>LIVE TELEMETRY</span>
+            </div>
+          ) : (
+            <div className="hidden xl:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-[11px] text-amber-400 font-semibold">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+              <span>MOCK FALLBACK</span>
+            </div>
+          )}
 
 
           {/* Notifications bell */}
