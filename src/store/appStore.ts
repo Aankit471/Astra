@@ -61,7 +61,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
   toggleOffline: () => set((state) => ({ isOffline: !state.isOffline })),
   createReferral: (patient, requiredCapabilities) => {
     requireConnection(get().isOffline)
-    const referral = db.createReferral(patient, requiredCapabilities, 'user-001')
+    const referral = db.createReferral(patient, requiredCapabilities, 'dispatch-001')
     set({ referrals: [...db.listReferrals()], auditEvents: [...db.listAuditEvents()], notifications: [...MockDatabase.getInstance().notifications] })
     return referral
   },

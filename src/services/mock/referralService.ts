@@ -5,7 +5,7 @@ import { AppError } from '@/api/errors'
 import { matchFacilities } from '@/services/matchingService'
 
 const getDb = () => MockDatabase.getInstance()
-const actor = { id: 'user-001', name: 'Priya Sharma', role: 'USER' }
+const actor = { id: 'dispatch-001', name: '108 Emergency Dispatch', role: 'DISPATCH' }
 
 const notify = (id: string, title: string, body: string, severity: 'INFO' | 'WARNING' | 'CRITICAL' | 'SUCCESS', referral: Referral, recipientRole?: string) => {
   getDb().addNotification({ id, type: 'SYSTEM_ALERT', title, body, severity, isRead: false, createdAt: new Date().toISOString(), referralId: referral.id, recipientRole })
