@@ -5,7 +5,6 @@
 import type { DoctorOperationalStatus } from './domain'
 
 export type UserRole =
-  | 'USER'           // Patient / Referring Facility staff
   | 'HOSPITAL_OPS'   // Hospital Operations staff
   | 'DOCTOR'         // Clinical staff
   | 'ADMIN'          // ASTRA Platform Admin
@@ -38,11 +37,6 @@ export type Permission =
   | 'admin:full'
 
 export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
-  USER: [
-    'referral:create',
-    'referral:view',
-    'hospital:view',
-  ],
   HOSPITAL_OPS: [
     'referral:view',
     'referral:respond',
@@ -69,7 +63,6 @@ export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
 }
 
 export const ROLE_HOME_PATHS: Record<UserRole, string> = {
-  USER:         '/user/emergency',
   HOSPITAL_OPS: '/hospital/dashboard',
   DOCTOR:       '/doctor/dashboard',
   ADMIN:        '/admin/dashboard',

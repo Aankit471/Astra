@@ -3,14 +3,6 @@ import { ROLE_PERMISSIONS } from '@/types/auth'
 
 export const MOCK_USERS: AuthUser[] = [
   {
-    id: 'user-001',
-    name: 'Priya Sharma',
-    email: 'user@astra.demo',
-    role: 'USER',
-    avatarInitials: 'PS',
-    permissions: ROLE_PERMISSIONS.USER,
-  },
-  {
     id: 'ops-001',
     name: 'Sarah Jenkins',
     email: 'ops@astra.demo',
@@ -73,7 +65,6 @@ export const MOCK_USERS: AuthUser[] = [
 ]
 
 export const MOCK_PASSWORDS: Record<string, string> = {
-  'user@astra.demo':    'user1234',
   'ops@astra.demo':     'ops1234',
   'doctor@astra.demo':  'doc1234',
   'doctor2@astra.demo': 'doc1234',
@@ -82,8 +73,7 @@ export const MOCK_PASSWORDS: Record<string, string> = {
 }
 
 export const DEMO_CREDENTIALS = [
-  { label: 'User / Patient',          email: 'user@astra.demo',    password: 'user1234',  role: 'USER' as const },
-  { label: 'Hospital Operations',     email: 'ops@astra.demo',     password: 'ops1234',   role: 'HOSPITAL_OPS' as const },
+  { label: 'Hospital Operations',      email: 'ops@astra.demo',     password: 'ops1234',   role: 'HOSPITAL_OPS' as const },
   { label: 'Doctor / Clinical Portal', email: 'doctor@astra.demo',  password: 'doc1234',   role: 'DOCTOR' as const },
-  { label: 'ASTRA Admin',             email: 'admin@astra.demo',   password: 'admin1234', role: 'ADMIN' as const },
+  { label: 'ASTRA Admin',              email: 'admin@astra.demo',   password: 'admin1234', role: 'ADMIN' as const },
 ]

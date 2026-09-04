@@ -24,7 +24,7 @@ export const authService = {
         const { data, error } = await supabase.auth.signInWithPassword({ email, password })
         if (!error && data.user) {
           const profile = await this.getCurrentProfile(data.user.id)
-          const role: UserRole = profile?.role || 'USER'
+          const role: UserRole = (profile?.role as UserRole) || 'HOSPITAL_OPS'
           return {
             id: data.user.id,
             email: data.user.email!,
@@ -99,7 +99,7 @@ export const authService = {
 
       return {
         id: data.id,
-        role: (data.role as UserRole) || 'USER',
+        role: (data.role as UserRole) || 'HOSPITAL_OPS',
         fullName: data.name || data.email?.split('@')[0] || 'User',
         email: data.email,
         hospitalId: data.hospital_id,
@@ -113,10 +113,10 @@ export const authService = {
   },
 
   /**
-   * Get role of a user from profile table, defaulting to 'USER'.
+   * Get role of a user from profile table, defaulting to 'HOSPITAL_OPS'.
    */
   async getRole(userId?: string): Promise<UserRole> {
     const profile = await this.getCurrentProfile(userId)
-    return profile?.role || 'USER'
+    return profile?.role || 'HOSPITAL_OPS'
   },
 }

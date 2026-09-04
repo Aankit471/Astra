@@ -4,14 +4,12 @@ import type { AuthUser } from '@/types/auth'
 import { AdminSimulation } from '@/components/data-display/AdminSimulation'
 import { AdminVerificationPanel } from '@/components/data-display/AdminVerificationPanel'
 import { HospitalArrivals } from '@/components/data-display/HospitalArrivals'
-import { UserProfile } from '@/components/data-display/UserProfile'
-import { UserSettings } from '@/components/data-display/UserSettings'
 import { BloodAvailabilityView } from '@/components/doctor/BloodAvailabilityView'
 
 export function renderRouteView({
   view,
   role,
-  user,
+  user: _user,
 }: {
   view: string
   role: AuthUser['role']
@@ -20,14 +18,6 @@ export function renderRouteView({
   const normalizedView = view.toLowerCase().replace(/^\//, '')
 
   switch (normalizedView) {
-    case 'profile':
-    case 'emergency-contacts':
-      return <UserProfile user={user} />
-
-    case 'settings':
-    case 'alerts':
-      return <UserSettings />
-
     case 'simulation':
       if (role !== 'ADMIN') return <Navigate to="/unauthorized" replace />
       return <AdminSimulation />
@@ -52,4 +42,3 @@ export function renderRouteView({
       return null
   }
 }
-
