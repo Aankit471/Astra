@@ -17,6 +17,7 @@ import { DoctorMessagesView } from './DoctorMessagesView'
 import { DoctorNotificationsView } from './DoctorNotificationsView'
 import { DoctorProfileView } from './DoctorProfileView'
 import { DoctorGlobalSearchModal } from './DoctorGlobalSearchModal'
+import { BloodAvailabilityView } from '@/components/doctor/BloodAvailabilityView'
 import {
   MOCK_DOCTOR_PATIENTS,
   type DoctorPatient,
@@ -123,6 +124,10 @@ export function DoctorPortalContainer({
         <DoctorClinicalReviewsView
           user={user}
         />
+      )}
+
+      {activeView === 'blood' && (
+        <BloodAvailabilityView />
       )}
 
       {activeView === 'tasks' && (

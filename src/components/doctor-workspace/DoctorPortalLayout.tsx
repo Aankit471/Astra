@@ -3,6 +3,7 @@ import {
   Bell,
   Calendar,
   CheckSquare,
+  Droplet,
   FileText,
   HeartPulse,
   Hospital,
@@ -29,6 +30,7 @@ export type DoctorViewTab =
   | 'patients'
   | 'referrals'
   | 'reviews'
+  | 'blood'
   | 'tasks'
   | 'schedule'
   | 'messages'
@@ -61,6 +63,7 @@ export function DoctorPortalLayout({
     { id: 'patients', label: 'My Patients', icon: Users, badge: '4', badgeColor: 'bg-teal-500/20 text-teal-300' },
     { id: 'referrals', label: 'Referrals', icon: Siren, badge: '3', badgeColor: 'bg-rose-500/20 text-rose-300' },
     { id: 'reviews', label: 'Clinical Reviews', icon: Stethoscope, badge: '2', badgeColor: 'bg-amber-500/20 text-amber-300' },
+    { id: 'blood', label: 'Blood Inventory', icon: Droplet, badge: 'O+ Live', badgeColor: 'bg-rose-500/20 text-rose-300' },
     { id: 'tasks', label: 'Tasks', icon: CheckSquare, badge: '5', badgeColor: 'bg-blue-500/20 text-blue-300' },
     { id: 'schedule', label: 'Schedule', icon: Calendar },
     { id: 'messages', label: 'Messages', icon: MessageSquare, badge: '1', badgeColor: 'bg-cyan-500/20 text-cyan-300' },

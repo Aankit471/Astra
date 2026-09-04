@@ -19,6 +19,8 @@ interface HospitalReferralDetailModalProps {
   onClose: () => void
   onAccept: (id: string) => Promise<{ success: boolean; error?: string }>
   onDecline: (id: string, reason: string) => Promise<{ success: boolean; error?: string }>
+  onRouteToClinical?: (id: string) => Promise<{ success: boolean; error?: string }>
+  onAllocateBed?: (referralId: string) => void
 }
 
 export function HospitalReferralDetailModal({
@@ -27,6 +29,8 @@ export function HospitalReferralDetailModal({
   onClose,
   onAccept,
   onDecline,
+  onRouteToClinical,
+  onAllocateBed,
 }: HospitalReferralDetailModalProps) {
   const [isDeclining, setIsDeclining] = useState(false)
   const [declineReason, setDeclineReason] = useState('')
@@ -304,7 +308,36 @@ export function HospitalReferralDetailModal({
                 Close Case
               </button>
 
-              {referral.status !== 'ACCEPTED' && (
+              {referral.status === 'ACCEPTED' && onRouteToClinical && (
+                <button
+                  onClick={async () => {
+                    setIsProcessing(true)
+                    const res = await onRouteToClinical(referral.id)
+                    setIsProcessing(false)
+                    if (res.success) onClose()
+                  }}
+                  disabled={isProcessing}
+                  className="px-3.5 py-2 rounded-xl bg-cyan-600/20 hover:bg-cyan-600/30 text-cyan-300 border border-cyan-500/40 text-xs font-semibold flex items-center gap-1.5 transition"
+                >
+                  <Stethoscope size={14} />
+                  <span>{isProcessing ? 'Routing...' : 'Route to Clinical Team'}</span>
+                </button>
+              )}
+
+              {onAllocateBed && (
+                <button
+                  onClick={() => {
+                    onAllocateBed(referral.id)
+                    onClose()
+                  }}
+                  className="px-3.5 py-2 rounded-xl bg-teal-600/20 hover:bg-teal-600/30 text-teal-300 border border-teal-500/40 text-xs font-semibold flex items-center gap-1.5 transition"
+                >
+                  <BedDouble size={14} />
+                  <span>Allocate Bed</span>
+                </button>
+              )}
+
+              {referral.status !== 'ACCEPTED' && referral.status !== 'REVIEWING' && (
                 <button
                   onClick={handleAccept}
                   disabled={isProcessing}

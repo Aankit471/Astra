@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useCallback } from 'react'
 import {
   AlertTriangle,
   CheckCircle2,
@@ -9,14 +9,29 @@ import {
   Search,
   ShieldAlert,
 } from 'lucide-react'
-import type { BloodAvailabilityStatus, BloodComponent, BloodGroup } from '@/types/domain'
+import type { BloodAvailabilityStatus, BloodComponent, BloodGroup, BloodInventoryItem } from '@/types/domain'
 import { useAppStore } from '@/store/appStore'
+import { bloodRepository } from '@/services/repositories/bloodRepository'
+import { useSupabaseRealtime } from '@/services/supabase/useSupabaseRealtime'
 import { getRelativeTime } from '@/utils/freshness'
 
+const DEFAULT_THRESHOLDS: Record<BloodGroup, number> = {
+  'O+': 10,
+  'O-': 5,
+  'A+': 10,
+  'A-': 5,
+  'B+': 10,
+  'B-': 5,
+  'AB+': 4,
+  'AB-': 3,
+}
+
 export function BloodAvailabilityView() {
-  const bloodInventory = useAppStore((state) => state.bloodInventory)
+  const storeInventory = useAppStore((state) => state.bloodInventory)
   const hospitals = useAppStore((state) => state.hospitals)
-  const refresh = useAppStore((state) => state.refresh)
+  const [bloodInventory, setBloodInventory] = useState<BloodInventoryItem[]>(storeInventory)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   const [selectedHospital, setSelectedHospital] = useState<string>('ALL')
   const [selectedGroup, setSelectedGroup] = useState<BloodGroup | 'ALL'>('ALL')
@@ -24,7 +39,7 @@ export function BloodAvailabilityView() {
   const [selectedStatus, setSelectedStatus] = useState<BloodAvailabilityStatus | 'ALL'>('ALL')
   const [searchQuery, setSearchQuery] = useState('')
 
-  const bloodGroups: BloodGroup[] = ['O+', 'O-', 'A+', 'A-', 'B+', 'B-', 'AB+', 'AB-']
+  const bloodGroups: BloodGroup[] = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-']
   const components: { key: BloodComponent; label: string }[] = [
     { key: 'PACKED_RBC', label: 'Packed RBC' },
     { key: 'PLATELETS', label: 'Platelets' },
@@ -33,6 +48,30 @@ export function BloodAvailabilityView() {
     { key: 'CRYOPRECIPITATE', label: 'Cryoprecipitate' },
   ]
 
+  const loadBloodData = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const data = await bloodRepository.list()
+      if (data && data.length > 0) {
+        setBloodInventory(data)
+      }
+    } catch (err: any) {
+      console.warn('Failed to load blood inventory from Supabase:', err)
+      setError('Unable to load live blood inventory. Using cached repository data.')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    loadBloodData()
+  }, [loadBloodData])
+
+  useSupabaseRealtime(useCallback(() => {
+    loadBloodData()
+  }, [loadBloodData]))
+
   const hospitalBloodOverview = useMemo(() => {
     const list = [
       { id: 'H001', name: 'Apollo General Hospital', type: 'Private Tertiary' },
@@ -40,7 +79,7 @@ export function BloodAvailabilityView() {
       { id: 'H003', name: "St. Mary's Mission Hospital", type: 'Charitable' },
       { id: 'H004', name: 'Sunrise Trauma Centre', type: 'Trauma Specialty' },
     ]
-    const groups: BloodGroup[] = ['O+', 'A+', 'B+', 'AB+', 'O-', 'A-']
+    const groups: BloodGroup[] = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-']
 
     return list.map((h) => {
       const items = bloodInventory.filter((b) => b.hospitalId === h.id)
@@ -103,13 +142,23 @@ export function BloodAvailabilityView() {
           </p>
         </div>
         <button
-          onClick={refresh}
-          className="btn-secondary text-xs py-2 px-3 flex items-center gap-1.5 self-start sm:self-auto"
+          onClick={() => loadBloodData()}
+          disabled={loading}
+          className="btn-secondary text-xs py-2 px-3 flex items-center gap-1.5 self-start sm:self-auto disabled:opacity-50"
         >
-          <RefreshCw size={14} />
-          <span>Refresh Inventory</span>
+          <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+          <span>{loading ? 'Refreshing...' : 'Refresh Inventory'}</span>
         </button>
       </div>
+
+      {error && (
+        <div className="bg-rose-500/10 border border-rose-500/30 rounded-xl p-3 text-xs text-rose-300 flex items-center justify-between gap-2">
+          <span>{error}</span>
+          <button onClick={() => loadBloodData()} className="btn-secondary text-xs py-1 px-2.5">
+            Retry
+          </button>
+        </div>
+      )}
 
       {/* ── Simulated Data Disclaimer & Clinical Safeguard ───────────── */}
       <div className="bg-cyan-950/40 border border-cyan-500/30 rounded-xl p-4 text-xs space-y-2 text-cyan-200">
@@ -318,6 +367,7 @@ export function BloodAvailabilityView() {
                 <th className="py-3 px-4">Group</th>
                 <th className="py-3 px-4">Component</th>
                 <th className="py-3 px-4 text-center">Available Units</th>
+                <th className="py-3 px-4 text-center">Min Threshold</th>
                 <th className="py-3 px-4">Availability</th>
                 <th className="py-3 px-4">Freshness & Telemetry</th>
                 <th className="py-3 px-4">Source / Verification</th>
@@ -327,6 +377,15 @@ export function BloodAvailabilityView() {
               {filteredItems.length ? (
                 filteredItems.map((item) => {
                   const isStale = item.freshness === 'STALE' || item.status === 'STALE'
+                  const threshold = DEFAULT_THRESHOLDS[item.bloodGroup] || 5
+                  const displayStatus =
+                    isStale
+                      ? 'STALE'
+                      : item.availableUnits === 0 || item.status === 'FULL'
+                      ? 'UNAVAILABLE'
+                      : item.availableUnits <= threshold || item.status === 'LIMITED'
+                      ? 'LOW'
+                      : 'AVAILABLE'
 
                   return (
                     <tr
@@ -359,26 +418,31 @@ export function BloodAvailabilityView() {
                         </strong>
                       </td>
 
+                      <td className="py-3.5 px-4 text-center text-slate-400 font-mono">
+                        {threshold} units
+                      </td>
+
                       <td className="py-3.5 px-4">
-                        <span
-                          className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold ${
-                            item.status === 'AVAILABLE'
-                              ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
-                              : item.status === 'LIMITED'
-                              ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
-                              : item.status === 'FULL'
-                              ? 'bg-rose-500/15 text-rose-300 border border-rose-500/30'
-                              : item.status === 'STALE'
-                              ? 'bg-amber-500/20 text-amber-200 border border-amber-500/40'
-                              : 'bg-slate-800 text-gray-300'
-                          }`}
-                        >
-                          {item.status === 'AVAILABLE' && <CheckCircle2 size={12} />}
-                          {item.status === 'LIMITED' && <AlertTriangle size={12} />}
-                          {item.status === 'FULL' && <span className="w-2 h-2 rounded-full bg-rose-400" />}
-                          {item.status === 'STALE' && <AlertTriangle size={12} />}
-                          {item.status}
-                        </span>
+                        {displayStatus === 'AVAILABLE' && (
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                            <CheckCircle2 size={12} /> AVAILABLE
+                          </span>
+                        )}
+                        {displayStatus === 'LOW' && (
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                            <AlertTriangle size={12} /> LOW
+                          </span>
+                        )}
+                        {displayStatus === 'UNAVAILABLE' && (
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-500/15 text-rose-300 border border-rose-500/30">
+                            <span className="w-1.5 h-1.5 rounded-full bg-rose-400" /> UNAVAILABLE
+                          </span>
+                        )}
+                        {displayStatus === 'STALE' && (
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-500/20 text-amber-200 border border-amber-500/40">
+                            <AlertTriangle size={12} /> STALE
+                          </span>
+                        )}
                       </td>
 
                       <td className="py-3.5 px-4 text-gray-400">

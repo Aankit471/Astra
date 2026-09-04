@@ -151,6 +151,24 @@ export function HospitalReferralsView({
     }
   }
 
+  // Route to Clinical Team Handler
+  const handleRouteToClinical = async (referralId: string): Promise<{ success: boolean; error?: string }> => {
+    setActionError(null)
+    setIsProcessing(true)
+    try {
+      const res = await referralRepository.routeToClinical(referralId, actor)
+      if (res.success) {
+        showToast(`✓ Referral #${referralId} routed to clinical specialist team.`)
+        loadReferralData(true)
+        return { success: true }
+      } else {
+        setActionError(res.error || 'Failed to route to clinical team.')
+        return { success: false, error: res.error }
+      }
+    } finally {
+      setIsProcessing(false)
+    }
+  }
 
   // Filtered referrals
   const filteredReferrals = useMemo(() => {
@@ -438,6 +456,17 @@ export function HospitalReferralsView({
                             Case View
                           </button>
 
+                          {ref.status === 'ACCEPTED' && (
+                            <button
+                              onClick={() => handleRouteToClinical(ref.id)}
+                              disabled={isProcessing}
+                              className="py-1 px-2.5 rounded-lg bg-cyan-600/20 hover:bg-cyan-600/30 text-cyan-300 border border-cyan-500/30 text-[11px] font-semibold transition"
+                              title="Route accepted case to attending clinical specialist"
+                            >
+                              Route to Doctor
+                            </button>
+                          )}
+
                           {!isAccepted && !isDeclined && (
                             <>
                               <button
@@ -476,6 +505,7 @@ export function HospitalReferralsView({
           onClose={() => setSelectedReferral(null)}
           onAccept={handleAcceptReferral}
           onDecline={handleDeclineReferral}
+          onRouteToClinical={handleRouteToClinical}
         />
       )}
 
