@@ -1,6 +1,8 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useCallback } from 'react'
 import {
   ArrowRight,
+  Clock,
+  Droplet,
   Hospital as HospitalIcon,
   MapPin,
   Search,
@@ -11,6 +13,8 @@ import type { AuthUser } from '@/types/auth'
 import type { Referral } from '@/types/domain'
 import { useAppStore } from '@/store/appStore'
 import { getDoctorProfile, getScopedDoctorReferrals } from '@/services/doctorService'
+import { referralRepository } from '@/services/repositories/referralRepository'
+import { useSupabaseRealtime } from '@/services/supabase/useSupabaseRealtime'
 import { getRelativeTime } from '@/utils/freshness'
 import { DoctorReferralReviewModal } from './DoctorReferralReviewModal'
 
@@ -19,22 +23,20 @@ interface DoctorReferralsViewProps {
   onOpenReview?: (id: string) => void
 }
 
+const PRIORITY_RANK: Record<string, number> = {
+  IMMEDIATE: 1,
+  URGENT: 2,
+  HIGH: 3,
+  SEMI_URGENT: 3,
+  ROUTINE: 4,
+}
+
 export function DoctorReferralsView({ user, onOpenReview }: DoctorReferralsViewProps) {
-  const referrals = useAppStore((state) => state.referrals)
-  const acceptReferral = useAppStore((state) => state.acceptReferral)
-  const declineReferral = useAppStore((state) => state.declineReferral)
-  const requestInformation = useAppStore((state) => state.requestInformation)
-
-  const doctor = useMemo(() => getDoctorProfile(user), [user])
-
-  // RBAC scoped referrals
-  const scopedReferrals = useMemo(
-    () => getScopedDoctorReferrals(user, referrals),
-    [user, referrals]
-  )
-
+  const storeReferrals = useAppStore((state) => state.referrals)
+  const [referrals, setReferrals] = useState<Referral[]>(storeReferrals)
+  const [_loading, setLoading] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
-  const [priorityFilter, setPriorityFilter] = useState<'ALL' | 'CRITICAL' | 'HIGH' | 'MEDIUM'>('ALL')
+  const [priorityFilter, setPriorityFilter] = useState<'ALL' | 'IMMEDIATE' | 'URGENT' | 'HIGH' | 'ROUTINE'>('ALL')
   const [stageFilter, setStageFilter] = useState<
     'ALL' | 'PENDING' | 'IN_REVIEW' | 'ACCEPTED' | 'ESCALATED'
   >('ALL')
@@ -42,48 +44,88 @@ export function DoctorReferralsView({ user, onOpenReview }: DoctorReferralsViewP
   const [selectedReviewReferral, setSelectedReviewReferral] = useState<Referral | null>(null)
   const [toastMessage, setToastMessage] = useState<string | null>(null)
 
+  const doctor = useMemo(() => getDoctorProfile(user), [user])
+
+  const loadReferrals = useCallback(async () => {
+    setLoading(true)
+    try {
+      const list = await referralRepository.list({ hospitalId: user.hospitalId })
+      if (list && list.length > 0) {
+        setReferrals(list)
+      }
+    } catch (err) {
+      console.warn('Failed to load referrals from Supabase:', err)
+    } finally {
+      setLoading(false)
+    }
+  }, [user.hospitalId])
+
+  useEffect(() => {
+    loadReferrals()
+  }, [loadReferrals])
+
+  // Realtime hook
+  useSupabaseRealtime(
+    useCallback(() => {
+      loadReferrals()
+    }, [loadReferrals])
+  )
+
+  // RBAC scoped referrals
+  const scopedReferrals = useMemo(
+    () => getScopedDoctorReferrals(user, referrals),
+    [user, referrals]
+  )
+
   // Extract unique specialties from referrals
   const availableSpecialties = useMemo(() => {
-    const list = new Set<string>()
+    const s = new Set<string>()
     scopedReferrals.forEach((r) => {
-      if (r.requiredSpecialty) list.add(r.requiredSpecialty)
-      if (r.assignedSpecialty) list.add(r.assignedSpecialty)
+      if (r.requiredSpecialty) s.add(r.requiredSpecialty)
+      if (r.assignedSpecialty) s.add(r.assignedSpecialty)
     })
-    return Array.from(list)
+    return Array.from(s)
   }, [scopedReferrals])
 
-  // Filtered referrals
+  // Filtered and priority-sorted referrals
   const filteredReferrals = useMemo(() => {
-    return scopedReferrals.filter((r) => {
-      // Stage filter
-      if (stageFilter === 'PENDING' && !['PENDING', 'CREATED', 'MATCHED'].includes(r.status)) return false
-      if (stageFilter === 'IN_REVIEW' && r.status !== 'REVIEWING') return false
-      if (stageFilter === 'ACCEPTED' && !['ACCEPTED', 'CONFIRMED'].includes(r.status))
-        return false
-      if (stageFilter === 'ESCALATED' && !['ESCALATED', 'DECLINED'].includes(r.status)) return false
+    return scopedReferrals
+      .filter((r) => {
+        // Stage filter
+        if (stageFilter === 'PENDING' && !['PENDING', 'CREATED', 'MATCHED'].includes(r.status)) return false
+        if (stageFilter === 'IN_REVIEW' && r.status !== 'REVIEWING') return false
+        if (stageFilter === 'ACCEPTED' && !['ACCEPTED', 'CONFIRMED'].includes(r.status)) return false
+        if (stageFilter === 'ESCALATED' && !['ESCALATED', 'DECLINED'].includes(r.status)) return false
 
-      // Priority filter
-      if (priorityFilter === 'CRITICAL' && r.patient.urgencyLevel !== 'IMMEDIATE') return false
-      if (priorityFilter === 'HIGH' && r.patient.urgencyLevel !== 'URGENT') return false
-      if (priorityFilter === 'MEDIUM' && r.patient.urgencyLevel !== 'SEMI_URGENT') return false
+        // Priority filter
+        if (priorityFilter === 'IMMEDIATE' && r.patient.urgencyLevel !== 'IMMEDIATE') return false
+        if (priorityFilter === 'URGENT' && r.patient.urgencyLevel !== 'URGENT') return false
+        if (priorityFilter === 'HIGH' && r.patient.urgencyLevel !== 'SEMI_URGENT' && (r.patient.urgencyLevel as any) !== 'HIGH') return false
+        if (priorityFilter === 'ROUTINE' && (r.patient.urgencyLevel as any) !== 'ROUTINE') return false
 
-      // Specialty filter
-      if (specialtyFilter !== 'ALL') {
-        const match =
-          r.requiredSpecialty?.toLowerCase() === specialtyFilter.toLowerCase() ||
-          r.assignedSpecialty?.toLowerCase() === specialtyFilter.toLowerCase()
-        if (!match) return false
-      }
+        // Specialty filter
+        if (specialtyFilter !== 'ALL') {
+          const match =
+            r.requiredSpecialty?.toLowerCase() === specialtyFilter.toLowerCase() ||
+            r.assignedSpecialty?.toLowerCase() === specialtyFilter.toLowerCase()
+          if (!match) return false
+        }
 
-      // Search by Patient reference or Referral ID
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase().trim()
-        const text = `${r.id} ${r.patient.referenceCode} ${r.patient.chiefComplaint} ${r.sentToFacilityName || ''}`.toLowerCase()
-        if (!text.includes(q)) return false
-      }
+        // Search by Patient reference or Referral ID
+        if (searchQuery.trim()) {
+          const q = searchQuery.toLowerCase().trim()
+          const text = `${r.id} ${r.patient.referenceCode} ${r.patient.chiefComplaint} ${r.sentToFacilityName || ''}`.toLowerCase()
+          if (!text.includes(q)) return false
+        }
 
-      return true
-    })
+        return true
+      })
+      .sort((a, b) => {
+        const rankA = PRIORITY_RANK[a.patient.urgencyLevel] || 99
+        const rankB = PRIORITY_RANK[b.patient.urgencyLevel] || 99
+        if (rankA !== rankB) return rankA - rankB
+        return new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime()
+      })
   }, [scopedReferrals, stageFilter, priorityFilter, specialtyFilter, searchQuery])
 
   const handleOpenModal = (r: Referral) => {
@@ -94,27 +136,75 @@ export function DoctorReferralsView({ user, onOpenReview }: DoctorReferralsViewP
     }
   }
 
-  const handleAccept = (id: string, notes?: string) => {
-    acceptReferral(id, true, notes || `Clinically accepted by ${doctor.name}`)
-    setToastMessage(`Referral #${id} clinically accepted. Operational bed confirmation dispatched.`)
+  const handleAccept = async (id: string, notes?: string) => {
+    await referralRepository.recordDecision(
+      id,
+      { decision: 'ACCEPTED', notes: notes || `Clinically accepted by ${doctor.name}` },
+      {
+        id: user.id,
+        name: user.name,
+        specialty: doctor.specialty,
+        doctorCode: doctor.doctorCode,
+        hospitalId: user.hospitalId,
+        hospitalName: doctor.hospitalName,
+      }
+    )
+    setToastMessage(`Referral #${id} clinically accepted. Dedicated bed confirmed.`)
+    loadReferrals()
     setTimeout(() => setToastMessage(null), 3500)
   }
 
-  const handleReject = (id: string, reason: string) => {
-    declineReferral(id, reason || 'Clinical capacity exceeded')
+  const handleReject = async (id: string, reason: string) => {
+    await referralRepository.recordDecision(
+      id,
+      { decision: 'DECLINED', reason, notes: reason },
+      {
+        id: user.id,
+        name: user.name,
+        specialty: doctor.specialty,
+        doctorCode: doctor.doctorCode,
+        hospitalId: user.hospitalId,
+        hospitalName: doctor.hospitalName,
+      }
+    )
     setToastMessage(`Referral #${id} declined: ${reason}`)
+    loadReferrals()
     setTimeout(() => setToastMessage(null), 3500)
   }
 
-  const handleEscalate = (id: string, reason: string) => {
-    useAppStore.getState().timeoutReferral(id)
+  const handleEscalate = async (id: string, reason: string) => {
+    await referralRepository.recordDecision(
+      id,
+      { decision: 'ESCALATED', reason, notes: reason, escalationReason: 'MANUAL' },
+      {
+        id: user.id,
+        name: user.name,
+        specialty: doctor.specialty,
+        doctorCode: doctor.doctorCode,
+        hospitalId: user.hospitalId,
+        hospitalName: doctor.hospitalName,
+      }
+    )
     setToastMessage(`Referral #${id} escalated: ${reason}`)
+    loadReferrals()
     setTimeout(() => setToastMessage(null), 3500)
   }
 
-  const handleRequestInfo = (id: string, notes: string) => {
-    requestInformation(id, notes)
+  const handleRequestInfo = async (id: string, notes: string) => {
+    await referralRepository.recordDecision(
+      id,
+      { decision: 'INFO_REQUESTED', notes },
+      {
+        id: user.id,
+        name: user.name,
+        specialty: doctor.specialty,
+        doctorCode: doctor.doctorCode,
+        hospitalId: user.hospitalId,
+        hospitalName: doctor.hospitalName,
+      }
+    )
     setToastMessage(`Information clarification requested for Referral #${id}`)
+    loadReferrals()
     setTimeout(() => setToastMessage(null), 3500)
   }
 
@@ -247,7 +337,7 @@ export function DoctorReferralsView({ user, onOpenReview }: DoctorReferralsViewP
                 key={r.id}
                 className={`card p-5 space-y-4 border transition-all ${
                   isCritical
-                    ? 'border-rose-500/40 bg-rose-950/10 hover:border-rose-500/60'
+                    ? 'border-l-4 border-l-rose-500 border-rose-500/40 bg-rose-950/15 hover:border-rose-500/70 shadow-lg shadow-rose-950/20'
                     : 'border-slate-800 bg-slate-900/80 hover:border-slate-700'
                 }`}
               >
@@ -257,11 +347,11 @@ export function DoctorReferralsView({ user, onOpenReview }: DoctorReferralsViewP
                     <span className="font-mono font-bold text-teal-400 bg-teal-500/10 px-2 py-0.5 rounded border border-teal-500/20">
                       {r.id}
                     </span>
-                    <strong className="text-white font-mono">{r.patient.referenceCode}</strong>
+                    <strong className="text-white font-mono">Patient #{r.patient.referenceCode}</strong>
                     <span
                       className={`text-[10px] font-bold px-2 py-0.5 rounded ${
                         isCritical
-                          ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                          ? 'bg-rose-500/25 text-rose-300 border border-rose-500/40 animate-pulse'
                           : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
                       }`}
                     >
@@ -270,11 +360,21 @@ export function DoctorReferralsView({ user, onOpenReview }: DoctorReferralsViewP
                     <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-800 text-slate-300">
                       {r.status}
                     </span>
+                    {r.patient.bloodGroup && (
+                      <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-rose-950/60 border border-rose-500/30 text-rose-300 flex items-center gap-1">
+                        <Droplet size={10} />
+                        {r.patient.bloodGroup}
+                      </span>
+                    )}
                   </div>
 
                   <div className="flex items-center gap-3 text-xs text-slate-400 font-mono">
-                    <span>Created: {getRelativeTime(r.createdAt)}</span>
-                    <span className="text-teal-300">Stage: {r.status}</span>
+                    <span className="flex items-center gap-1">
+                      <Clock size={12} className="text-teal-400" />
+                      Waiting: <strong className="text-slate-200">{getRelativeTime(r.createdAt)}</strong>
+                    </span>
+                    <span>·</span>
+                    <span>Updated: {getRelativeTime(r.updatedAt || r.createdAt)}</span>
                   </div>
                 </div>
 
@@ -283,21 +383,25 @@ export function DoctorReferralsView({ user, onOpenReview }: DoctorReferralsViewP
                   {/* Column 1: PATIENT Information */}
                   <div className="bg-slate-950/60 p-3.5 rounded-xl border border-slate-800 space-y-1.5">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block border-b border-white/5 pb-1">
-                      PATIENT DETAILS
+                      PATIENT IDENTIFIER & DEMOGRAPHICS
                     </span>
                     <div>
-                      <span className="text-slate-400 block text-[11px]">Age / Sex</span>
+                      <span className="text-slate-400 block text-[11px]">Patient Reference</span>
+                      <strong className="text-teal-300 font-mono text-xs">{r.patient.referenceCode}</strong>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 block text-[11px]">Age / Gender</span>
                       <strong className="text-white text-xs">{r.patient.age} Yrs · {r.patient.sex}</strong>
                     </div>
                     <div>
-                      <span className="text-slate-400 block text-[11px]">Emergency Type</span>
+                      <span className="text-slate-400 block text-[11px]">Emergency Category</span>
                       <strong className="text-cyan-300 text-xs">{r.patient.emergencyCategory}</strong>
                     </div>
                     <div>
-                      <span className="text-slate-400 block text-[11px]">Current Location</span>
+                      <span className="text-slate-400 block text-[11px]">Originating Ambulance / Facility</span>
                       <span className="text-slate-300 text-xs flex items-center gap-1">
-                        <MapPin size={12} className="text-slate-400" />
-                        {r.sentToFacilityName || 'Indiranagar 108 Emergency EMS'}
+                        <MapPin size={12} className="text-slate-400 shrink-0" />
+                        <span className="truncate">{r.sentToFacilityName || 'Indiranagar 108 Emergency EMS'}</span>
                       </span>
                     </div>
                   </div>
@@ -305,38 +409,38 @@ export function DoctorReferralsView({ user, onOpenReview }: DoctorReferralsViewP
                   {/* Column 2: CLINICAL Information */}
                   <div className="bg-slate-950/60 p-3.5 rounded-xl border border-slate-800 space-y-1.5">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block border-b border-white/5 pb-1">
-                      CLINICAL TRIAGE
+                      CLINICAL TRIAGE & VITALS
                     </span>
                     <div>
-                      <span className="text-slate-400 block text-[11px]">Chief Complaint</span>
+                      <span className="text-slate-400 block text-[11px]">Diagnosis / Chief Complaint</span>
                       <strong className="text-white text-xs block leading-snug">{r.patient.chiefComplaint}</strong>
                     </div>
                     <div>
-                      <span className="text-slate-400 block text-[11px]">Vitals / Clinical Notes</span>
-                      <span className="text-slate-300 text-xs font-mono">
-                        {r.patient.vitalSummary || 'BP 90/60 · HR 112 · SpO2 91%'}
+                      <span className="text-slate-400 block text-[11px]">Vital Signs Telemetry</span>
+                      <span className="text-slate-200 text-xs font-mono font-medium block">
+                        {r.patient.vitalSummary || 'BP 90/60 · HR 112 bpm · SpO2 91% · Temp 37.1°C'}
                       </span>
                     </div>
-                    <div className="flex items-center gap-2 pt-0.5">
-                      {r.patient.bloodGroup && (
-                        <span className="px-2 py-0.5 rounded bg-rose-500/15 border border-rose-500/30 text-rose-300 font-bold text-[11px]">
-                          Blood Group: {r.patient.bloodGroup}
-                        </span>
-                      )}
-                      <span className="px-2 py-0.5 rounded bg-teal-500/15 border border-teal-500/30 text-teal-300 text-[11px]">
-                        {r.requiredCapabilities.length} Required Capabilities
+                    <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                      <span className="px-2 py-0.5 rounded bg-teal-500/15 border border-teal-500/30 text-teal-300 text-[10px] font-semibold">
+                        {r.requiredCapabilities.length} Capabilities Needed
                       </span>
+                      {r.requiredCapabilities.slice(0, 2).map((c, idx) => (
+                        <span key={idx} className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 text-[9px] font-mono">
+                          {c.label || c.capabilityItem}
+                        </span>
+                      ))}
                     </div>
                   </div>
 
                   {/* Column 3: SPECIALTY ROUTING & ASSIGNMENT */}
                   <div className="bg-slate-950/60 p-3.5 rounded-xl border border-slate-800 space-y-2">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block border-b border-white/5 pb-1">
-                      SPECIALTY ROUTING
+                      SPECIALTY ROUTING & RECEIVING
                     </span>
                     <div>
                       <span className="text-[10px] text-slate-400 uppercase tracking-wider block">
-                        Clinical Specialty Required
+                        Required Clinical Specialty
                       </span>
                       <strong className="text-sm font-bold text-teal-300 block">
                         {r.requiredSpecialty || doctor.specialty}
@@ -344,14 +448,14 @@ export function DoctorReferralsView({ user, onOpenReview }: DoctorReferralsViewP
                     </div>
                     <div className="pt-1 border-t border-slate-800/80">
                       <span className="text-[10px] text-slate-400 uppercase tracking-wider block">
-                        Currently Reviewing
+                        Assigned Attending Clinician
                       </span>
                       <strong className="text-xs text-white block">
-                        {doctor.name} · {doctor.specialty}
+                        {r.assignedDoctorName || doctor.name} · {r.assignedSpecialty || doctor.specialty}
                       </strong>
                     </div>
                     <div>
-                      <span className="text-slate-400 block text-[11px]">Target Receiving Facility</span>
+                      <span className="text-slate-400 block text-[11px]">Receiving Facility</span>
                       <span className="text-slate-300 text-xs font-medium">
                         {r.sentToFacilityName || doctor.hospitalName}
                       </span>
@@ -364,10 +468,10 @@ export function DoctorReferralsView({ user, onOpenReview }: DoctorReferralsViewP
                   <div className="flex items-center gap-2 text-xs text-slate-400">
                     <span className="flex items-center gap-1">
                       <HospitalIcon size={14} className="text-teal-400" />
-                      Receiving: <strong className="text-white">{r.sentToFacilityName || doctor.hospitalName}</strong>
+                      Facility: <strong className="text-white">{r.sentToFacilityName || doctor.hospitalName}</strong>
                     </span>
                     <span>·</span>
-                    <span>Assigned: <strong className="text-teal-300">{doctor.name}</strong></span>
+                    <span>Assigned Doctor: <strong className="text-teal-300">{r.assignedDoctorName || doctor.name}</strong></span>
                   </div>
 
                   <div className="flex items-center gap-2 self-end sm:self-auto">

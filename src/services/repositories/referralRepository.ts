@@ -16,12 +16,24 @@ export interface DoctorActor {
 }
 
 export interface ClinicalDecisionPayload {
-  decision: 'ACCEPTED' | 'DECLINED' | 'ESCALATED' | 'INFO_REQUESTED' | 'OVERRIDE'
+  decision:
+    | 'ACCEPTED'
+    | 'DECLINED'
+    | 'ESCALATED'
+    | 'INFO_REQUESTED'
+    | 'OVERRIDE'
+    | 'TREATMENT_READY'
+    | 'SPECIALIST_REQUEST'
+    | 'BLOOD_REQUEST'
+    | 'TRANSFER_RECOMMENDED'
   notes?: string
   reason?: string
   priority?: 'Immediate' | 'Urgent' | 'Routine'
   escalationReason?: 'MANUAL' | 'NO_RESPONSE' | 'DECLINED_ALL' | 'TIMEOUT'
   overrideReason?: string
+  targetSpecialty?: string
+  bloodGroupRequested?: string
+  targetHospitalId?: string
 }
 
 export const referralRepository = {
@@ -42,6 +54,7 @@ export const referralRepository = {
             IMMEDIATE: 1,
             URGENT: 2,
             SEMI_URGENT: 3,
+            ROUTINE: 4,
           }
           const mapped = data.map((r: any) => ({
             id: r.id,
@@ -82,6 +95,10 @@ export const referralRepository = {
             })),
             decision: r.decision,
             assignedDoctorId: r.assigned_doctor_id,
+            assignedDoctorName: r.assigned_doctor_name,
+            assignedDoctorCode: r.assigned_doctor_code,
+            assignedSpecialty: r.assigned_specialty,
+            requiredSpecialty: r.required_specialty,
           }))
 
           return mapped.sort((a: any, b: any) => {
@@ -101,6 +118,7 @@ export const referralRepository = {
       IMMEDIATE: 1,
       URGENT: 2,
       SEMI_URGENT: 3,
+      ROUTINE: 4,
     }
     return mockDb.referrals
       .filter((r) => {
@@ -115,7 +133,78 @@ export const referralRepository = {
         if (rankA !== rankB) return rankA - rankB
         return new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime()
       })
+  },
 
+  /**
+   * Fetch a single referral by ID with full patient, timeline, and capabilities.
+   */
+  async getById(id: string): Promise<Referral | null> {
+    if (isSupabaseConfigured()) {
+      try {
+        const { data, error } = await supabase
+          .from('referrals')
+          .select(`
+            *,
+            patient:patients(*),
+            referral_events(*)
+          `)
+          .eq('id', id)
+          .single()
+
+        if (data && !error) {
+          const r: any = data
+          return {
+            id: r.id,
+            status: r.status,
+            createdAt: r.created_at,
+            updatedAt: r.updated_at,
+            createdBy: r.created_by || 'System',
+            patient: r.patient
+              ? {
+                  referenceCode: r.patient.reference_code,
+                  age: r.patient.age,
+                  sex: r.patient.sex,
+                  chiefComplaint: r.patient.chief_complaint,
+                  emergencyCategory: r.patient.emergency_category,
+                  urgencyLevel: r.patient.urgency_level,
+                  bloodGroup: r.patient.blood_group,
+                }
+              : {
+                  referenceCode: 'PAT-UNKNOWN',
+                  age: 40,
+                  sex: 'OTHER',
+                  chiefComplaint: 'Emergency Referral',
+                  emergencyCategory: 'OTHER',
+                  urgencyLevel: 'URGENT',
+                },
+            requiredCapabilities: Array.isArray(r.required_capabilities) ? r.required_capabilities : [],
+            matchedFacilities: Array.isArray(r.matched_facilities) ? r.matched_facilities : [],
+            sentToFacilityId: r.sent_to_facility_id,
+            sentToFacilityName: r.sent_to_facility_name,
+            responseDeadline: r.response_deadline || new Date(Date.now() + 15 * 60_000).toISOString(),
+            timeline: (r.referral_events || []).map((e: any) => ({
+              id: e.id,
+              event: e.event,
+              timestamp: e.timestamp || e.created_at,
+              actor: e.actor || 'System',
+              notes: e.notes,
+              isSystemEvent: e.is_system_event ?? (!e.actor || e.actor === 'System'),
+            })),
+            decision: r.decision,
+            assignedDoctorId: r.assigned_doctor_id,
+            assignedDoctorName: r.assigned_doctor_name,
+            assignedDoctorCode: r.assigned_doctor_code,
+            assignedSpecialty: r.assigned_specialty,
+            requiredSpecialty: r.required_specialty,
+          }
+        }
+      } catch (err) {
+        console.warn('Supabase referral getById error, falling back to mock:', err)
+      }
+    }
+
+    const mockDb = MockDatabase.getInstance()
+    return mockDb.getReferralById(id) || null
   },
 
   /**
@@ -133,6 +222,7 @@ export const referralRepository = {
             chief_complaint: patient.chiefComplaint,
             emergency_category: patient.emergencyCategory,
             urgency_level: patient.urgencyLevel,
+            blood_group: patient.bloodGroup,
             created_by: createdBy,
           })
           .select()
@@ -190,7 +280,7 @@ export const referralRepository = {
 
   /**
    * Record a doctor's clinical decision on a referral.
-   * Supports: ACCEPTED, DECLINED, ESCALATED, INFO_REQUESTED, OVERRIDE
+   * Supports: ACCEPTED, DECLINED, ESCALATED, INFO_REQUESTED, OVERRIDE, TREATMENT_READY, SPECIALIST_REQUEST, BLOOD_REQUEST, TRANSFER_RECOMMENDED
    */
   async recordDecision(
     referralId: string,
@@ -216,6 +306,18 @@ export const referralRepository = {
     } else if (payload.decision === 'OVERRIDE') {
       newStatus = 'ACCEPTED'
       eventTitle = 'Clinical Override Authorized by Attending Specialist'
+    } else if (payload.decision === 'TREATMENT_READY') {
+      newStatus = 'ACCEPTED'
+      eventTitle = 'Patient Marked Clinically Ready for Treatment'
+    } else if (payload.decision === 'SPECIALIST_REQUEST') {
+      newStatus = 'REVIEWING'
+      eventTitle = `Specialist Consultation Requested: ${payload.targetSpecialty || 'Sub-specialist'}`
+    } else if (payload.decision === 'BLOOD_REQUEST') {
+      newStatus = 'REVIEWING'
+      eventTitle = `Urgent Blood Requisition: Group ${payload.bloodGroupRequested || 'Required'}`
+    } else if (payload.decision === 'TRANSFER_RECOMMENDED') {
+      newStatus = 'ESCALATED'
+      eventTitle = 'Clinical Transfer Recommended by Attending Physician'
     }
 
     if (isSupabaseConfigured()) {
@@ -228,7 +330,7 @@ export const referralRepository = {
           assigned_specialty: doctor.specialty,
         }
 
-        if (payload.decision === 'ACCEPTED') {
+        if (payload.decision === 'ACCEPTED' || payload.decision === 'TREATMENT_READY') {
           updatePayload.status = 'ACCEPTED'
           updatePayload.decision = {
             accepted: true,
@@ -246,7 +348,7 @@ export const referralRepository = {
             notes: payload.notes || payload.reason,
             timestamp,
           }
-        } else if (payload.decision === 'ESCALATED') {
+        } else if (payload.decision === 'ESCALATED' || payload.decision === 'TRANSFER_RECOMMENDED') {
           updatePayload.status = 'ESCALATED'
           updatePayload.escalation_reason = payload.escalationReason || 'MANUAL'
           updatePayload.escalated_at = timestamp
@@ -276,6 +378,22 @@ export const referralRepository = {
             is_system_event: false,
             timestamp,
           })
+
+          await auditRepository.log({
+            action: `CLINICAL_${payload.decision}`,
+            actorId: doctor.id,
+            actorName: doctor.name,
+            actorRole: 'DOCTOR',
+            targetType: 'REFERRAL',
+            targetId: referralId,
+            targetLabel: `Clinical Decision: ${eventTitle}`,
+            details: {
+              specialty: doctor.specialty,
+              hospitalId: doctor.hospitalId,
+              notes: payload.notes || payload.reason,
+            },
+          })
+
           return true
         }
       } catch (err) {
@@ -290,6 +408,9 @@ export const referralRepository = {
       target.status = newStatus
       target.updatedAt = timestamp
       target.assignedDoctorId = doctor.id
+      target.assignedDoctorName = doctor.name
+      target.assignedDoctorCode = doctor.doctorCode
+      target.assignedSpecialty = doctor.specialty
       target.decision = {
         type: payload.decision === 'DECLINED' ? 'DECLINE' : payload.decision === 'INFO_REQUESTED' ? 'INFO_REQUEST' : 'ACCEPT',
         decidedBy: doctor.id,
@@ -307,6 +428,23 @@ export const referralRepository = {
       }
       target.timeline.unshift(newEvt)
       mockDb.upsertReferral(target)
+
+      await auditRepository.log({
+        action: `CLINICAL_${payload.decision}`,
+        actorId: doctor.id,
+        actorName: doctor.name,
+        actorRole: 'DOCTOR',
+        targetType: 'REFERRAL',
+        targetId: referralId,
+        targetLabel: `Clinical Decision: ${eventTitle}`,
+        details: {
+          specialty: doctor.specialty,
+          hospitalId: doctor.hospitalId,
+          notes: payload.notes || payload.reason,
+          mode: 'OFFLINE_FALLBACK',
+        },
+      })
+
       return true
     }
     return false
@@ -330,7 +468,23 @@ export const referralRepository = {
           is_system_event: false,
           timestamp,
         })
-        if (!error) return true
+        if (!error) {
+          await auditRepository.log({
+            action: 'CLINICAL_NOTE_ADDED',
+            actorId: doctor.id,
+            actorName: doctor.name,
+            actorRole: 'DOCTOR',
+            targetType: 'REFERRAL',
+            targetId: referralId,
+            targetLabel: `Clinical Note Added by ${doctor.name}`,
+            details: {
+              specialty: doctor.specialty,
+              hospitalId: doctor.hospitalId,
+              noteSnippet: note.slice(0, 100),
+            },
+          })
+          return true
+        }
       } catch (err) {
         console.warn('Supabase addClinicalNote error, falling back to mock:', err)
       }
@@ -348,6 +502,22 @@ export const referralRepository = {
         isSystemEvent: false,
       })
       mockDb.upsertReferral(target)
+
+      await auditRepository.log({
+        action: 'CLINICAL_NOTE_ADDED',
+        actorId: doctor.id,
+        actorName: doctor.name,
+        actorRole: 'DOCTOR',
+        targetType: 'REFERRAL',
+        targetId: referralId,
+        targetLabel: `Clinical Note Added by ${doctor.name}`,
+        details: {
+          specialty: doctor.specialty,
+          hospitalId: doctor.hospitalId,
+          noteSnippet: note.slice(0, 100),
+          mode: 'OFFLINE_FALLBACK',
+        },
+      })
       return true
     }
     return false

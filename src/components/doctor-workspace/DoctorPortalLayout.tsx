@@ -10,16 +10,19 @@ import {
   LogOut,
   Menu,
   MessageSquare,
+  Radio,
   Search,
   Siren,
   Stethoscope,
   User,
   Users,
+  WifiOff,
   X,
   type LucideIcon,
 } from 'lucide-react'
 import type { AuthUser } from '@/types/auth'
 import { MOCK_DOCTOR_NOTIFICATIONS } from '@/data/doctorData'
+import { isSupabaseConfigured } from '@/lib/supabaseClient'
 
 export type DoctorViewTab =
   | 'dashboard'
@@ -74,7 +77,10 @@ export function DoctorPortalLayout({
   const doctorSpecialty = user.specialty || 'Interventional Cardiology'
   const doctorHospital = user.hospitalName || 'Apollo General Hospital'
   const doctorReg = user.doctorCode || 'KMC-84729'
-  const onCallStatus = user.doctorStatus || 'ON CALL'
+  const isLive = isSupabaseConfigured()
+  const rawStatus = (user.doctorStatus as string) || 'ON-CALL'
+  const isOnCall = rawStatus === 'ON_CALL' || rawStatus === 'AVAILABLE' || rawStatus === 'ON-CALL'
+  const onCallLabel = isOnCall ? 'ON-CALL' : 'OFF-DUTY'
 
   return (
     <div className="min-h-screen bg-[#060b13] text-slate-100 flex flex-col antialiased">
@@ -99,6 +105,17 @@ export function DoctorPortalLayout({
                 <span className="text-[10px] font-mono font-bold uppercase tracking-wider bg-teal-500/15 border border-teal-500/30 text-teal-300 px-2 py-0.5 rounded">
                   DOCTOR / CLINICAL
                 </span>
+                {isLive ? (
+                  <span className="hidden sm:inline-flex items-center gap-1 text-[10px] font-mono font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-2 py-0.5 rounded">
+                    <Radio size={10} className="animate-pulse text-emerald-400" />
+                    LIVE TELEMETRY
+                  </span>
+                ) : (
+                  <span className="hidden sm:inline-flex items-center gap-1 text-[10px] font-mono font-bold text-amber-400 bg-amber-500/10 border border-amber-500/30 px-2 py-0.5 rounded">
+                    <WifiOff size={10} />
+                    MOCK FALLBACK
+                  </span>
+                )}
               </div>
               <p className="text-[11px] text-slate-400 leading-none hidden sm:block">
                 Physician Decision Support · Reg: {doctorReg}
@@ -133,9 +150,13 @@ export function DoctorPortalLayout({
           </div>
 
           {/* On-call status */}
-          <div className="hidden xl:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-[11px] text-emerald-400 font-semibold">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-            <span>{onCallStatus}</span>
+          <div className={`hidden xl:flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold border ${
+            !isOnCall
+              ? 'bg-slate-800 border-slate-700 text-slate-400'
+              : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+          }`}>
+            <span className={`w-1.5 h-1.5 rounded-full ${!isOnCall ? 'bg-slate-500' : 'bg-emerald-400 animate-pulse'}`} />
+            <span>{onCallLabel}</span>
           </div>
 
           {/* Notifications button */}
@@ -165,6 +186,13 @@ export function DoctorPortalLayout({
         </div>
       </header>
 
+      {/* Realtime fallback warning if disconnected or mock */}
+      {!isLive && (
+        <div className="bg-amber-950/40 border-b border-amber-500/30 px-4 py-1 text-center text-xs text-amber-300 font-medium">
+          Realtime connection unavailable — displaying last synchronized data.
+        </div>
+      )}
+
       {/* ── Main Body with Persistent Sidebar ─────────────────────────── */}
       <div className="flex-1 flex overflow-hidden">
         {/* Persistent Left Sidebar */}
@@ -186,7 +214,7 @@ export function DoctorPortalLayout({
                   {user.name}
                 </strong>
                 <span className="text-[10px] text-teal-400 font-semibold block">
-                  {doctorSpecialty} · {onCallStatus}
+                  {doctorSpecialty} · {onCallLabel}
                 </span>
               </div>
             </div>

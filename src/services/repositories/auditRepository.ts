@@ -79,10 +79,13 @@ export const auditRepository = {
   /**
    * List recent audit logs for a hospital or target entity.
    */
-  async list(targetId?: string): Promise<AuditEvent[]> {
+  async list(targetIdOrFilter?: string | { targetId?: string; facilityId?: string; limit?: number }): Promise<AuditEvent[]> {
+    const targetId = typeof targetIdOrFilter === 'string' ? targetIdOrFilter : targetIdOrFilter?.targetId
+    const limit = typeof targetIdOrFilter === 'object' && targetIdOrFilter?.limit ? targetIdOrFilter.limit : 20
+
     if (isSupabaseConfigured()) {
       try {
-        let query = supabase.from('audit_logs').select('*').order('timestamp', { ascending: false }).limit(20)
+        let query = supabase.from('audit_logs').select('*').order('timestamp', { ascending: false }).limit(limit)
         if (targetId) {
           query = query.or(`target_id.eq.${targetId},actor_id.eq.${targetId}`)
         }
@@ -107,6 +110,10 @@ export const auditRepository = {
       }
     }
 
-    return MockDatabase.getInstance().auditEvents
+    const mockLogs = MockDatabase.getInstance().auditEvents
+    if (targetId) {
+      return mockLogs.filter((a) => a.targetId === targetId || a.actorId === targetId).slice(0, limit)
+    }
+    return mockLogs.slice(0, limit)
   },
 }

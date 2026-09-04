@@ -218,4 +218,187 @@ describe('Prompt #20 — Doctor Clinical Command Center & Scoping Suite', () => 
     const apiSpecialists = await mockApi.specialists.list('H001')
     expect(apiSpecialists.length).toBeGreaterThan(0)
   })
+
+  // Prompt #22: 5 Specialties Routing, Hospital Isolation, Priority Sorting, Decisions & Notes
+  describe('Prompt #22 — Full Supabase Clinical Portal & Specialty Routing', () => {
+    it('verifies strict specialty routing across Cardiology, Neurology, Trauma Surgery, Critical Care, and Emergency Medicine', () => {
+      const apolloHospital = 'H001'
+      
+      const cardiologist: AuthUser = {
+        id: 'doc-cardio',
+        name: 'Dr. Cardio',
+        email: 'cardio@astra.demo',
+        role: 'DOCTOR',
+        specialty: 'Cardiology',
+        hospitalId: apolloHospital,
+        permissions: [],
+      }
+
+      const neurologist: AuthUser = {
+        id: 'doc-neuro',
+        name: 'Dr. Neuro',
+        email: 'neuro@astra.demo',
+        role: 'DOCTOR',
+        specialty: 'Neurology',
+        hospitalId: apolloHospital,
+        permissions: [],
+      }
+
+      const traumaSurgeon: AuthUser = {
+        id: 'doc-trauma',
+        name: 'Dr. Trauma',
+        email: 'trauma@astra.demo',
+        role: 'DOCTOR',
+        specialty: 'Trauma Surgery',
+        hospitalId: apolloHospital,
+        permissions: [],
+      }
+
+      const criticalCareDoc: AuthUser = {
+        id: 'doc-icu',
+        name: 'Dr. Critical',
+        email: 'icu@astra.demo',
+        role: 'DOCTOR',
+        specialty: 'Critical Care',
+        hospitalId: apolloHospital,
+        permissions: [],
+      }
+
+      const emergencyDoc: AuthUser = {
+        id: 'doc-em',
+        name: 'Dr. Emergency',
+        email: 'emergency@astra.demo',
+        role: 'DOCTOR',
+        specialty: 'Emergency Medicine',
+        hospitalId: apolloHospital,
+        permissions: [],
+      }
+
+      // Cases for each specialty
+      const cardioCase = {
+        id: 'CASE-C1',
+        sentToFacilityId: apolloHospital,
+        requiredSpecialty: 'Cardiology',
+        patient: { chiefComplaint: 'STEMI and cardiogenic shock', emergencyCategory: 'CARDIAC' },
+      } as any
+
+      const neuroCase = {
+        id: 'CASE-N1',
+        sentToFacilityId: apolloHospital,
+        requiredSpecialty: 'Neurology',
+        patient: { chiefComplaint: 'Acute ischemic stroke with hemiparesis', emergencyCategory: 'NEUROLOGICAL' },
+      } as any
+
+      const traumaCase = {
+        id: 'CASE-T1',
+        sentToFacilityId: apolloHospital,
+        requiredSpecialty: 'Trauma Surgery',
+        patient: { chiefComplaint: 'Polytrauma following high-speed MVA', emergencyCategory: 'TRAUMA' },
+      } as any
+
+      const icuCase = {
+        id: 'CASE-I1',
+        sentToFacilityId: apolloHospital,
+        requiredSpecialty: 'Critical Care',
+        patient: { chiefComplaint: 'Septic shock with multi-organ failure', emergencyCategory: 'CRITICAL_CARE' },
+      } as any
+
+      const emCase = {
+        id: 'CASE-E1',
+        sentToFacilityId: apolloHospital,
+        requiredSpecialty: 'Emergency Medicine',
+        patient: { chiefComplaint: 'Acute severe respiratory distress', emergencyCategory: 'RESPIRATORY' },
+      } as any
+
+      // Cardiology doctor can access Cardiology case, but not unassigned pure neuro case
+      expect(canDoctorAccessReferral(cardiologist, cardioCase)).toBe(true)
+      expect(canDoctorAccessReferral(cardiologist, neuroCase)).toBe(false)
+
+      // Neurology doctor can access Neurology case
+      expect(canDoctorAccessReferral(neurologist, neuroCase)).toBe(true)
+      expect(canDoctorAccessReferral(neurologist, traumaCase)).toBe(false)
+
+      // Trauma Surgery can access Trauma case
+      expect(canDoctorAccessReferral(traumaSurgeon, traumaCase)).toBe(true)
+      expect(canDoctorAccessReferral(traumaSurgeon, cardioCase)).toBe(false)
+
+      // Critical Care can access multi-organ failure / septic shock cases
+      expect(canDoctorAccessReferral(criticalCareDoc, icuCase)).toBe(true)
+
+      // Emergency Medicine can access general emergency & triage cases
+      expect(canDoctorAccessReferral(emergencyDoc, emCase)).toBe(true)
+    })
+
+    it('enforces strict hospital isolation preventing cross-hospital case access even with matching specialty', () => {
+      const apolloDoctor: AuthUser = {
+        id: 'doc-apollo',
+        name: 'Dr. Apollo Specialist',
+        email: 'doc@apollo.org',
+        role: 'DOCTOR',
+        specialty: 'Cardiology',
+        hospitalId: 'H001',
+        permissions: [],
+      }
+
+      const fortisCardiacCase = {
+        id: 'CASE-FORTIS-01',
+        sentToFacilityId: 'H002', // Different facility!
+        requiredSpecialty: 'Cardiology',
+        patient: { chiefComplaint: 'Acute coronary syndrome', emergencyCategory: 'CARDIAC' },
+      } as any
+
+      // MUST be rejected due to facility mismatch
+      expect(canDoctorAccessReferral(apolloDoctor, fortisCardiacCase)).toBe(false)
+    })
+
+    it('records clinical decisions and creates audit trail via repository layer', async () => {
+      const { referralRepository } = await import('./repositories/referralRepository')
+      const { auditRepository } = await import('./repositories/auditRepository')
+
+      const doctorActor = {
+        id: 'doc-001',
+        name: 'Dr. Ananya Mehta',
+        specialty: 'Cardiology',
+        doctorCode: 'DOC-2048',
+        hospitalId: 'H001',
+        hospitalName: 'Apollo General Hospital',
+      }
+
+      // 1. Record ACCEPT decision
+      const acceptResult = await referralRepository.recordDecision(
+        'REF-001',
+        { decision: 'ACCEPTED', notes: 'Patient accepted for immediate Cath Lab intervention.' },
+        doctorActor
+      )
+      expect(acceptResult).toBe(true)
+
+      const updatedRef = await referralRepository.getById('REF-001')
+      expect(updatedRef?.status).toBe('ACCEPTED')
+
+      // Verify audit log entry was written
+      const logs = await auditRepository.list({ limit: 10 })
+      const decisionLog = logs.find((l) => l.action === 'CLINICAL_ACCEPTED' && l.targetId === 'REF-001')
+      expect(decisionLog).toBeDefined()
+      expect(decisionLog?.actorRole).toBe('DOCTOR')
+      expect(decisionLog?.details?.hospitalId).toBe('H001')
+
+      // 2. Add clinical progress note
+      const noteResult = await referralRepository.addClinicalNote(
+        'REF-001',
+        'Heparin bolus administered. Cath lab team notified and ready.',
+        doctorActor
+      )
+      expect(noteResult).toBe(true)
+
+      const refWithNote = await referralRepository.getById('REF-001')
+      expect(refWithNote?.timeline.some((t) => t.notes?.includes('Heparin bolus administered'))).toBe(true)
+
+      // Verify note audit log
+      const updatedLogs = await auditRepository.list({ limit: 10 })
+      const noteLog = updatedLogs.find((l) => l.action === 'CLINICAL_NOTE_ADDED' && l.targetId === 'REF-001')
+      expect(noteLog).toBeDefined()
+    })
+  })
 })
+
+

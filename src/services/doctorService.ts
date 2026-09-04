@@ -46,7 +46,7 @@ export function getDoctorProfile(user: AuthUser): DoctorClinicalProfile {
     department: user.department || 'Emergency Cardiac Care',
     hospitalId: user.hospitalId || 'H001',
     hospitalName: user.hospitalName || 'Apollo General Hospital',
-    status: user.doctorStatus || 'AVAILABLE',
+    status: user.doctorStatus || 'ON_CALL',
     role: 'Authorized Clinical Reviewer',
     avatarInitials: user.avatarInitials || 'DR',
   }
@@ -55,6 +55,13 @@ export function getDoctorProfile(user: AuthUser): DoctorClinicalProfile {
 /**
  * Checks if the logged-in doctor is authorized to access a given referral.
  * Production backend must enforce patient-level authorization.
+ *
+ * Supported Specialties (Prompt #22):
+ * - Cardiology
+ * - Neurology
+ * - Trauma Surgery
+ * - Critical Care
+ * - Emergency Medicine
  */
 export function canDoctorAccessReferral(user: AuthUser, referral: Referral): boolean {
   if (user.role === 'ADMIN') return true
@@ -63,11 +70,12 @@ export function canDoctorAccessReferral(user: AuthUser, referral: Referral): boo
   if (referral.assignedDoctorId === user.id) return true
   if (user.doctorCode && referral.assignedDoctorCode === user.doctorCode) return true
 
-  // 2. Case must be associated with the doctor's hospital
+  // 2. Strict hospital isolation: case must be associated with the doctor's hospital
+  const hospitalId = user.hospitalId || 'H001'
   const hospitalMatch =
-    referral.sentToFacilityId === user.hospitalId ||
-    referral.confirmedFacilityId === user.hospitalId ||
-    referral.timeline.some((t) => t.facilityId === user.hospitalId)
+    referral.sentToFacilityId === hospitalId ||
+    referral.confirmedFacilityId === hospitalId ||
+    (referral.timeline && referral.timeline.some((t) => t.facilityId === hospitalId))
 
   if (!hospitalMatch) return false
 
@@ -75,22 +83,54 @@ export function canDoctorAccessReferral(user: AuthUser, referral: Referral): boo
   if (user.department && referral.assignedDepartment === user.department) return true
 
   // 4. Case requires or consults doctor's specialty at this facility
-  if (user.specialty) {
-    if (referral.requiredSpecialty?.toLowerCase() === user.specialty.toLowerCase()) return true
-    if (referral.assignedSpecialty?.toLowerCase() === user.specialty.toLowerCase()) return true
-    if (referral.consultingSpecialties?.some((s) => s.toLowerCase() === user.specialty!.toLowerCase()))
+  const userSpecialty = (user.specialty || 'Cardiology').trim().toLowerCase()
+  if (referral.requiredSpecialty && referral.requiredSpecialty.trim().toLowerCase() === userSpecialty) return true
+  if (referral.assignedSpecialty && referral.assignedSpecialty.trim().toLowerCase() === userSpecialty) return true
+  if (referral.consultingSpecialties && referral.consultingSpecialties.some((s) => s.trim().toLowerCase() === userSpecialty))
+    return true
+
+  // 5. Emergency specialty category and condition routing:
+  const category = (referral.patient.emergencyCategory || '').toUpperCase()
+  const complaint = (referral.patient.chiefComplaint || '').toLowerCase()
+
+  // Cardiology doctor: STEMI, ACS, cardiogenic shock, cardiac emergency cases
+  if (userSpecialty.includes('cardio')) {
+    if (category === 'CARDIAC') return true
+    if (complaint.includes('stemi') || complaint.includes('acs') || complaint.includes('cardiogenic') || complaint.includes('chest pain') || complaint.includes('infarction')) {
       return true
+    }
   }
 
-  // 5. In emergency triage without explicit doctor assignment yet, matching specialty
-  const hasCategoryMatch =
-    (user.specialty === 'Cardiology' && referral.patient.emergencyCategory === 'CARDIAC') ||
-    (user.specialty === 'Neurology' && referral.patient.emergencyCategory === 'NEURO') ||
-    (user.specialty === 'Trauma' && referral.patient.emergencyCategory === 'TRAUMA') ||
-    (user.specialty === 'Obstetrics & Gynecology' && referral.patient.emergencyCategory === 'OBSTETRIC') ||
-    (user.specialty === 'Orthopedics' && referral.patient.emergencyCategory === 'TRAUMA')
+  // Neurology doctor: stroke, neuro-trauma, seizure-related emergency, neurological emergencies
+  if (userSpecialty.includes('neuro')) {
+    if (category === 'NEURO') return true
+    if (complaint.includes('stroke') || complaint.includes('seizure') || complaint.includes('altered sensorium') || complaint.includes('paralysis') || complaint.includes('hemorrhage')) {
+      return true
+    }
+  }
 
-  return Boolean(hasCategoryMatch)
+  // Trauma Surgery doctor: polytrauma, major injuries, trauma cases
+  if (userSpecialty.includes('trauma') || userSpecialty.includes('ortho')) {
+    if (category === 'TRAUMA') return true
+    if (complaint.includes('polytrauma') || complaint.includes('fracture') || complaint.includes('injury') || complaint.includes('accident') || complaint.includes('amputation')) {
+      return true
+    }
+  }
+
+  // Critical Care doctor: septic shock, multi-organ failure, ICU-level critical cases
+  if (userSpecialty.includes('critical') || userSpecialty.includes('icu') || userSpecialty.includes('respiratory')) {
+    if (category === 'CRITICAL_CARE' || category === 'RESPIRATORY') return true
+    if (complaint.includes('septic') || complaint.includes('multi-organ') || complaint.includes('ards') || complaint.includes('respiratory arrest') || complaint.includes('shock')) {
+      return true
+    }
+  }
+
+  // Emergency Medicine doctor: emergency triage and general emergency cases
+  if (userSpecialty.includes('emergency') || userSpecialty.includes('general')) {
+    return true
+  }
+
+  return false
 }
 
 /**
